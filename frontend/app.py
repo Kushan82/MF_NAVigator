@@ -81,7 +81,7 @@ with st.sidebar:
     page = st.radio(
         "Navigation",
         ["🏠 Home", "📊 Scheme Analysis", "📈 Portfolio Builder", 
-         "🤖 NAV Predictions", "⚖️ Compare Schemes"],
+         "🤖 NAV Predictions", "⚖️ Compare Schemes""📊 Power BI Dashboard"],
         label_visibility="collapsed"
     )
     
@@ -802,7 +802,15 @@ elif page == "⚖️ Compare Schemes":
                             st.warning("Scheme already in comparison")
         except Exception as e:
             st.error(f"Error: {str(e)}")
-    
+elif page == "📊 Power BI Dashboard":
+    # Import and run the Power BI page
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "powerbi_dashboard", 
+        "frontend/pages/powerbi_dashboard.py"
+    )
+    powerbi_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(powerbi_module)    
     # Display and compare
     if len(st.session_state['compare_schemes']) >= 2:
         st.markdown("---")
@@ -927,6 +935,5 @@ elif page == "⚖️ Compare Schemes":
                 
                 except Exception as e:
                     st.error(f"Error: {str(e)}")
-    
     else:
         st.info("👆 Add at least 2 schemes to compare")

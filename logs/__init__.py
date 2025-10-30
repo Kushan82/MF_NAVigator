@@ -1,0 +1,3 @@
+"""
+Logs directory for application logs
+"""
