@@ -1,5 +1,10 @@
+"""
+API routes for MF_NAVigator
+All REST API endpoints for the application
+"""
+
 from fastapi import APIRouter, HTTPException, Query
-from typing import List, Optional
+from typing import List, Optional, Dict
 from datetime import datetime
 import pandas as pd
 
@@ -8,7 +13,9 @@ from data.fetch_data import MutualFundDataFetcher
 from analytics.financial_metrics import FinancialMetricsCalculator
 from analytics.risk_metrics import RiskMetricsCalculator
 from analytics.portfolio_analysis import PortfolioAnalyzer
+from analytics.comparison import SchemeComparator
 from models.predictor import NAVPredictor
+
 
 # Create routers
 router = APIRouter()
@@ -19,13 +26,16 @@ data_fetcher = MutualFundDataFetcher()
 fin_calc = FinancialMetricsCalculator()
 risk_calc = RiskMetricsCalculator()
 portfolio_analyzer = PortfolioAnalyzer()
+scheme_comparator = SchemeComparator()
 
 
+# ==========================================
 # Health Check
+# ==========================================
 
 @health_router.get("/health", response_model=HealthCheck)
 async def health_check():
-    
+    """Health check endpoint"""
     return {
         "status": "healthy",
         "version": "1.0.0",
@@ -33,14 +43,21 @@ async def health_check():
     }
 
 
+# ==========================================
 # Scheme Endpoints
+# ==========================================
 
 @router.get("/schemes/search", response_model=SchemeSearchResponse)
 async def search_schemes(
     query: str = Query(..., min_length=2, description="Search query"),
     limit: int = Query(50, ge=1, le=200, description="Max results")
 ):
+    """
+    Search mutual fund schemes by name, AMC, or code
     
+    - **query**: Search term (minimum 2 characters)
+    - **limit**: Maximum number of results to return
+    """
     try:
         # Fetch latest data
         df = data_fetcher.fetch_amfi_daily_nav(save_to_cache=False)
@@ -79,7 +96,11 @@ async def search_schemes(
 
 @router.get("/schemes/{scheme_code}", response_model=SchemeDetail)
 async def get_scheme_details(scheme_code: str):
+    """
+    Get details for a specific scheme
     
+    - **scheme_code**: The scheme code
+    """
     try:
         # Get scheme info from MFapi
         info = data_fetcher.get_scheme_info(scheme_code)
@@ -102,11 +123,17 @@ async def get_scheme_details(scheme_code: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ==========================================
 # Metrics Endpoints
+# ==========================================
 
 @router.get("/metrics/financial/{scheme_code}", response_model=FinancialMetrics)
 async def get_financial_metrics(scheme_code: str):
+    """
+    Get financial metrics for a scheme (CAGR, Sharpe, returns, etc.)
     
+    - **scheme_code**: The scheme code
+    """
     try:
         # Fetch historical data
         df = data_fetcher.fetch_historical_nav_mfapi(scheme_code)
@@ -137,7 +164,11 @@ async def get_financial_metrics(scheme_code: str):
 
 @router.get("/metrics/risk/{scheme_code}", response_model=RiskMetrics)
 async def get_risk_metrics(scheme_code: str):
+    """
+    Get risk metrics for a scheme (volatility, drawdown, VaR, etc.)
     
+    - **scheme_code**: The scheme code
+    """
     try:
         # Fetch historical data
         df = data_fetcher.fetch_historical_nav_mfapi(scheme_code)
@@ -169,7 +200,11 @@ async def get_risk_metrics(scheme_code: str):
 
 @router.get("/metrics/comprehensive/{scheme_code}", response_model=ComprehensiveMetrics)
 async def get_comprehensive_metrics(scheme_code: str):
+    """
+    Get all metrics (financial + risk) for a scheme
     
+    - **scheme_code**: The scheme code
+    """
     try:
         # Get scheme info
         info = data_fetcher.get_scheme_info(scheme_code)
@@ -198,7 +233,11 @@ async def get_comprehensive_metrics(scheme_code: str):
 
 @router.post("/portfolio/analyze", response_model=PortfolioMetrics)
 async def analyze_portfolio(portfolio: PortfolioRequest):
-
+    """
+    Analyze a portfolio of schemes with given weights
+    
+    Weights must sum to 1.0 (100%)
+    """
     try:
         # Validate weights sum to 1
         total_weight = sum([s.weight for s in portfolio.schemes])
@@ -243,9 +282,14 @@ async def analyze_portfolio(portfolio: PortfolioRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/portfolio/compare", response_model=ComparisonResponse)
-async def compare_schemes(scheme_codes: List[str]):
+@router.post("/portfolio/compare", response_model=Dict)
+async def compare_schemes_old(scheme_codes: List[str]):
+    """
+    Compare multiple schemes side by side (legacy endpoint)
+    Use /schemes/compare instead
     
+    - **scheme_codes**: List of scheme codes to compare
+    """
     try:
         if len(scheme_codes) < 2:
             raise HTTPException(status_code=400, detail="Need at least 2 schemes to compare")
@@ -298,15 +342,91 @@ async def compare_schemes(scheme_codes: List[str]):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/schemes/compare", response_model=Dict)
+async def compare_schemes_endpoint(scheme_codes: List[str]):
+    """
+    Compare multiple schemes side by side with detailed metrics
+    
+    - **scheme_codes**: List of scheme codes to compare (2-10 schemes)
+    """
+    try:
+        if len(scheme_codes) < 2:
+            raise HTTPException(status_code=400, detail="Need at least 2 schemes")
+        
+        if len(scheme_codes) > 10:
+            raise HTTPException(status_code=400, detail="Maximum 10 schemes allowed")
+        
+        # Fetch data for all schemes
+        schemes_data = {}
+        scheme_info = {}
+        
+        for code in scheme_codes:
+            df = data_fetcher.fetch_historical_nav_mfapi(code)
+            
+            if df is not None and len(df) >= 100:
+                nav_series = df.set_index('Date')['NAV']
+                schemes_data[code] = nav_series
+                
+                # Get scheme info
+                info = data_fetcher.get_scheme_info(code)
+                scheme_info[code] = info.get('scheme_name', code) if info else code
+        
+        if len(schemes_data) < 2:
+            raise HTTPException(status_code=404, detail="Insufficient data for comparison")
+        
+        # Use comparator to get detailed comparison
+        comparison_result = scheme_comparator.compare_schemes(
+            list(schemes_data.keys()),
+            schemes_data
+        )
+        
+        # Format response
+        df_comparison = comparison_result['comparison']
+        
+        schemes_list = []
+        for idx, row in df_comparison.iterrows():
+            schemes_list.append({
+                'scheme_code': row['scheme_code'],
+                'scheme_name': scheme_info.get(row['scheme_code'], row['scheme_code']),
+                'current_nav': float(row['current_nav']),
+                'cagr': float(row['cagr']) if pd.notna(row['cagr']) else None,
+                'annualized_return': float(row['annualized_return']),
+                'sharpe_ratio': float(row['sharpe_ratio']) if pd.notna(row['sharpe_ratio']) else None,
+                'sortino_ratio': float(row['sortino_ratio']) if pd.notna(row['sortino_ratio']) else None,
+                'volatility': float(row['volatility']),
+                'max_drawdown': float(row['max_drawdown']),
+                'downside_deviation': float(row['downside_deviation']),
+                'var_95': float(row['var_95']),
+                'calmar_ratio': float(row['calmar_ratio']) if pd.notna(row['calmar_ratio']) else None
+            })
+        
+        best = comparison_result['best_schemes']
+        
+        return {
+            'total_schemes': len(schemes_list),
+            'schemes': schemes_list,
+            'best_by_sharpe': scheme_info.get(best.get('best_by_sharpe', {}).get('scheme_code', ''), ''),
+            'best_by_return': scheme_info.get(best.get('best_by_return', {}).get('scheme_code', ''), ''),
+            'comparison_date': datetime.now().isoformat()
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==========================================
 # Prediction Endpoints
+# ==========================================
 
 @router.post("/predict/single", response_model=PredictionResponse)
 async def predict_nav(request: PredictionRequest):
     """
-    Predict future NAV for a scheme
+    Predict future NAV for a scheme using ML model
     
     - **scheme_code**: Scheme code
-    - **forecast_days**: Number of days to forecast (default: 30)
+    - **forecast_days**: Number of days to forecast (1-90 days)
     """
     try:
         # Fetch historical data
@@ -356,7 +476,12 @@ async def predict_sequence(
     scheme_code: str,
     days: int = Query(7, ge=1, le=30, description="Number of days to predict")
 ):
+    """
+    Sequential NAV predictions for multiple days ahead
     
+    - **scheme_code**: Scheme code
+    - **days**: Number of days to predict (1-30 days)
+    """
     try:
         # Fetch historical data
         df = data_fetcher.fetch_historical_nav_mfapi(scheme_code)
@@ -399,7 +524,9 @@ async def predict_sequence(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ==========================================
 # Historical Data Endpoints
+# ==========================================
 
 @router.get("/historical/{scheme_code}", response_model=HistoricalDataResponse)
 async def get_historical_data(
@@ -408,7 +535,14 @@ async def get_historical_data(
     end_date: Optional[str] = None,
     limit: int = Query(365, ge=1, le=2000, description="Max data points")
 ):
+    """
+    Get historical NAV data for a scheme
     
+    - **scheme_code**: Scheme code
+    - **start_date**: Start date (YYYY-MM-DD) - optional
+    - **end_date**: End date (YYYY-MM-DD) - optional
+    - **limit**: Maximum data points to return (1-2000)
+    """
     try:
         # Fetch data
         df = data_fetcher.fetch_historical_nav_mfapi(scheme_code)
