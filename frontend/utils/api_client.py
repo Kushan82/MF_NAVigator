@@ -50,22 +50,18 @@ class APIClient:
             )
             response.raise_for_status()
             return response.json()
-        
         except requests.exceptions.Timeout:
             if show_error:
                 st.error("⏱️ Request timed out. Please try again.")
             return None
-        
         except requests.exceptions.ConnectionError:
             if show_error:
                 st.error("🔴 Cannot connect to API. Ensure the backend is running.")
             return None
-        
         except requests.exceptions.HTTPError as e:
             if show_error:
                 st.error(f"❌ API Error: {e}")
             return None
-        
         except Exception as e:
             if show_error:
                 st.error(f"⚠️ Unexpected error: {e}")
@@ -205,90 +201,171 @@ class APIClient:
     # Prediction Endpoints
     # ==========================================
     
-    def predict_nav(
-        self,
-        scheme_code: str,
-        forecast_days: int = 30
-    ) -> Optional[Dict]:
+    def predict_nav(self, scheme_code: str, forecast_days: int = 30) -> Optional[Dict]:
         """
         Predict future NAV for a scheme
         
         Args:
             scheme_code: Scheme code
-            forecast_days: Number of days to forecast (1-90)
+            forecast_days: Number of days to forecast
         
         Returns:
-            Prediction result dictionary
+            Prediction dictionary or None
         """
-        return self._make_request(
-            "POST",
-            f"{self.api_v1}/predict/single",
-            json={
-                "scheme_code": scheme_code,
-                "forecast_days": min(max(forecast_days, 1), 90)
-            }
-        )
+        try:
+            response = requests.post(
+                f"{self.api_v1}/predict/single",
+                json={
+                    "scheme_code": scheme_code,
+                    "forecast_days": forecast_days
+                },
+                timeout=self.timeout
+            )
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            st.error(f"API Error: {str(e)}")
+            return None
     
-    def predict_sequence(
-        self,
-        scheme_code: str,
-        days: int = 7
-    ) -> Optional[Dict]:
+    def predict_sequence(self, scheme_code: str, days: int = 7) -> Optional[Dict]:
         """
-        Get sequential NAV predictions
+        Get sequential NAV predictions for multiple days
         
         Args:
             scheme_code: Scheme code
-            days: Number of days to predict (1-30)
+            days: Number of days to predict
         
         Returns:
-            Sequential predictions dictionary
+            Sequential predictions dictionary or None
         """
-        return self._make_request(
-            "POST",
-            f"{self.api_v1}/predict/sequence",
-            params={
-                "scheme_code": scheme_code,
-                "days": min(max(days, 1), 30)
-            }
-        )
+        try:
+            response = requests.get(
+                f"{self.api_v1}/predict/sequence",
+                params={
+                    "scheme_code": scheme_code,
+                    "days": days
+                },
+                timeout=self.timeout
+            )
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            st.error(f"API Error: {str(e)}")
+            return None
     
     # ==========================================
     # Historical Data Endpoints
     # ==========================================
     
-    def get_historical_data(
-        self,
-        scheme_code: str,
-        start_date: Optional[str] = None,
-        end_date: Optional[str] = None,
-        limit: int = 365
-    ) -> Optional[Dict]:
+    def get_historical_data(self, scheme_code: str, limit: int = 365) -> Optional[Dict]:
         """
         Get historical NAV data for a scheme
         
         Args:
             scheme_code: Scheme code
-            start_date: Start date (YYYY-MM-DD)
-            end_date: End date (YYYY-MM-DD)
-            limit: Maximum data points (1-2000)
+            limit: Maximum data points
         
         Returns:
-            Historical data dictionary
+            Historical data dictionary or None
         """
-        params = {"limit": min(max(limit, 1), 2000)}
+        try:
+            response = requests.get(
+                f"{self.api_v1}/historical/{scheme_code}",
+                params={"limit": limit},
+                timeout=self.timeout
+            )
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            st.error(f"API Error: {str(e)}")
+            return None
+    
+    # ==========================================
+    # Portfolio Save/Manage Endpoints
+    # ==========================================
+    
+    def save_portfolio(self, portfolio_data: dict) -> dict:
+        """
+        Save portfolio to backend
         
-        if start_date:
-            params["start_date"] = start_date
+        Args:
+            portfolio_data: Portfolio data dictionary
         
-        if end_date:
-            params["end_date"] = end_date
+        Returns:
+            Response dictionary
+        """
+        try:
+            response = requests.post(
+                f"{self.api_v1}/portfolio/save",
+                json=portfolio_data,
+                timeout=self.timeout
+            )
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            st.error(f"API Error: {str(e)}")
+            return {"success": False, "error": str(e)}
+    
+    def get_saved_portfolios(self) -> list:
+        """
+        Get list of saved portfolios
         
-        return self._make_request(
-            "GET",
-            f"{self.api_v1}/historical/{scheme_code}",
-            params=params
-        )
+        Returns:
+            List of portfolios
+        """
+        try:
+            response = requests.get(
+                f"{self.api_v1}/portfolio/list",
+                timeout=self.timeout
+            )
+            response.raise_for_status()
+            data = response.json()
+            return data.get('portfolios', [])
+        except Exception as e:
+            st.error(f"API Error: {str(e)}")
+            return []
+    
+    def get_portfolio(self, portfolio_id: str) -> dict:
+        """
+        Get portfolio details
+        
+        Args:
+            portfolio_id: Portfolio ID
+        
+        Returns:
+            Portfolio dictionary
+        """
+        try:
+            response = requests.get(
+                f"{self.api_v1}/portfolio/{portfolio_id}",
+                timeout=self.timeout
+            )
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            st.error(f"API Error: {str(e)}")
+            return {}
+    
+    def delete_portfolio(self, portfolio_id: str) -> dict:
+        """
+        Delete portfolio
+        
+        Args:
+            portfolio_id: Portfolio ID
+        
+        Returns:
+            Response dictionary
+        """
+        try:
+            response = requests.delete(
+                f"{self.api_v1}/portfolio/{portfolio_id}",
+                timeout=self.timeout
+            )
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            st.error(f"API Error: {str(e)}")
+            return {"success": False, "error": str(e)}
     
     # ==========================================
     # Health Check
@@ -328,12 +405,10 @@ class APIClient:
             Dictionary with {scheme_code: metrics}
         """
         results = {}
-        
         for code in scheme_codes:
             metrics = self.get_comprehensive_metrics(code)
             if metrics:
                 results[code] = metrics
-        
         return results
     
     def batch_get_predictions(
@@ -352,63 +427,8 @@ class APIClient:
             Dictionary with {scheme_code: prediction}
         """
         results = {}
-        
         for code in scheme_codes:
             prediction = self.predict_nav(code, forecast_days)
             if prediction:
                 results[code] = prediction
-        
         return results
-    def save_portfolio(self, portfolio_data: dict) -> dict:
-        """Save portfolio to backend"""
-        try:
-            response = requests.post(
-                f"{self.base_url}/portfolio/save",
-                json=portfolio_data,
-                timeout=self.timeout
-            )
-            response.raise_for_status()
-            return response.json()
-        except Exception as e:
-            st.error(f"API Error: {str(e)}")
-            return {"success": False, "error": str(e)}
-    
-    def get_saved_portfolios(self) -> list:
-        """Get list of saved portfolios"""
-        try:
-            response = requests.get(
-                f"{self.base_url}/portfolio/list",
-                timeout=self.timeout
-            )
-            response.raise_for_status()
-            data = response.json()
-            return data.get('portfolios', [])
-        except Exception as e:
-            st.error(f"API Error: {str(e)}")
-            return []
-    
-    def get_portfolio(self, portfolio_id: str) -> dict:
-        """Get portfolio details"""
-        try:
-            response = requests.get(
-                f"{self.base_url}/portfolio/{portfolio_id}",
-                timeout=self.timeout
-            )
-            response.raise_for_status()
-            return response.json()
-        except Exception as e:
-            st.error(f"API Error: {str(e)}")
-            return {}
-    
-    def delete_portfolio(self, portfolio_id: str) -> dict:
-        """Delete portfolio"""
-        try:
-            response = requests.delete(
-                f"{self.base_url}/portfolio/{portfolio_id}",
-                timeout=self.timeout
-            )
-            response.raise_for_status()
-            return response.json()
-        except Exception as e:
-            st.error(f"API Error: {str(e)}")
-            return {"success": False, "error": str(e)}
