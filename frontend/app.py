@@ -19,10 +19,32 @@ st.set_page_config(
 )
 
 # ==========================================
+# HIDE DEFAULT STREAMLIT NAVIGATION
+# ==========================================
+hide_streamlit_nav = """
+<style>
+    /* Hide the default Streamlit page navigation */
+    [data-testid="stSidebarNav"] {
+        display: none;
+    }
+    
+    /* Hide the default page links list */
+    section[data-testid="stSidebarNav"] {
+        display: none !important;
+    }
+    
+    /* Alternative: Hide entire nav section */
+    .css-1544g2n {
+        display: none;
+    }
+</style>
+"""
+st.markdown(hide_streamlit_nav, unsafe_allow_html=True)
+
+# ==========================================
 # Initialize Session State
 # ==========================================
 
-# Initialize all session state variables at app startup
 if 'compare_schemes_list' not in st.session_state:
     st.session_state['compare_schemes_list'] = []
 
@@ -37,6 +59,7 @@ if 'selected_scheme_code' not in st.session_state:
 
 if 'selected_scheme_name' not in st.session_state:
     st.session_state['selected_scheme_name'] = None
+
 if 'show_add_form' not in st.session_state:
     st.session_state['show_add_form'] = False
 
@@ -46,11 +69,8 @@ if 'run_comparison' not in st.session_state:
 if 'run_analysis' not in st.session_state:
     st.session_state['run_analysis'] = False
 
-if 'last_search' not in st.session_state:
-    st.session_state['last_search'] = None
-
-if 'search_results' not in st.session_state:
-    st.session_state['search_results'] = None
+if 'run_prediction' not in st.session_state:
+    st.session_state['run_prediction'] = False
 
 # ==========================================
 # Load Components
@@ -76,17 +96,6 @@ load_custom_css()
 # Page Routing
 # ==========================================
 
-# Render sidebar and get selected page
-sidebar_page = render_sidebar()
-
-# Determine which page to show
-if st.session_state.get('navigate_to'):
-    page = st.session_state['navigate_to']
-    st.session_state['navigate_to'] = None  # Reset after use
-else:
-    page = sidebar_page
-
-# Page mapping
 PAGE_MAP = {
     "🏠 Home": home,
     "📊 Scheme Analysis": scheme_analysis,
@@ -96,12 +105,17 @@ PAGE_MAP = {
     "📊 Analytics Dashboard": analytics_dashboard
 }
 
+# Determine which page to show
+if st.session_state.get('navigate_to'):
+    page = st.session_state['navigate_to']
+else:
+    page = render_sidebar()
+
 # Render selected page
 if page in PAGE_MAP:
     PAGE_MAP[page].render()
+    
+    if st.session_state.get('navigate_to') == page:
+        st.session_state['navigate_to'] = None
 else:
-    st.error(f"❌ Page '{page}' not found")
-    st.markdown("---")
-    st.markdown("**Available pages:**")
-    for page_name in PAGE_MAP.keys():
-        st.text(f"• {page_name}")
+    st.error(f"❌ Page not found: '{page}'")
