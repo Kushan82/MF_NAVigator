@@ -7,6 +7,10 @@ from fastapi import APIRouter, HTTPException, Query
 from typing import List, Optional, Dict
 from datetime import datetime
 import pandas as pd
+import json
+import uuid
+from pathlib import Path
+from pydantic import BaseModel
 
 from backend.schemas import *
 from data.fetch_data import MutualFundDataFetcher
@@ -17,11 +21,78 @@ from analytics.comparison import SchemeComparator
 from models.predictor import NAVPredictor
 
 
+# ==========================================
+# PORTFOLIO MODELS (Pydantic)
+# ==========================================
+
+class PortfolioScheme(BaseModel):
+    scheme_code: str
+    scheme_name: str
+    weight: float
+
+
+class PortfolioRequest(BaseModel):
+    name: str
+    description: str = ""
+    schemes: List[PortfolioScheme]
+    created_at: str
+    total_weight: float
+
+
+class PortfolioResponse(BaseModel):
+    success: bool
+    portfolio_id: str = None
+    message: str = ""
+    error: str = None
+
+
+# ==========================================
+# PORTFOLIO STORAGE
+# ==========================================
+
+PORTFOLIOS_DIR = Path("backend/data/portfolios")
+PORTFOLIOS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def load_portfolio(portfolio_id: str) -> dict:
+    """Load portfolio from JSON file"""
+    portfolio_file = PORTFOLIOS_DIR / f"{portfolio_id}.json"
+    if not portfolio_file.exists():
+        return None
+    
+    with open(portfolio_file, 'r') as f:
+        return json.load(f)
+
+
+def save_portfolio_to_file(portfolio_id: str, portfolio_data: dict):
+    """Save portfolio to JSON file"""
+    portfolio_file = PORTFOLIOS_DIR / f"{portfolio_id}.json"
+    with open(portfolio_file, 'w') as f:
+        json.dump(portfolio_data, f, indent=2)
+
+
+def list_portfolios() -> list:
+    """List all saved portfolios"""
+    portfolios = []
+    for portfolio_file in PORTFOLIOS_DIR.glob("*.json"):
+        with open(portfolio_file, 'r') as f:
+            portfolio = json.load(f)
+            portfolios.append(portfolio)
+    return portfolios
+
+
+# ==========================================
 # Create routers
+# ==========================================
+
 router = APIRouter()
 health_router = APIRouter()
 
+
+# ==========================================
 # Initialize components
+# ==========================================
+
 data_fetcher = MutualFundDataFetcher()
 fin_calc = FinancialMetricsCalculator()
 risk_calc = RiskMetricsCalculator()
@@ -33,7 +104,7 @@ scheme_comparator = SchemeComparator()
 # Health Check
 # ==========================================
 
-@health_router.get("/health", response_model=HealthCheck)
+@health_router.get("/health")
 async def health_check():
     """Health check endpoint"""
     return {
@@ -47,16 +118,13 @@ async def health_check():
 # Scheme Endpoints
 # ==========================================
 
-@router.get("/schemes/search", response_model=SchemeSearchResponse)
+@router.get("/schemes/search")
 async def search_schemes(
     query: str = Query(..., min_length=2, description="Search query"),
     limit: int = Query(50, ge=1, le=200, description="Max results")
 ):
     """
     Search mutual fund schemes by name, AMC, or code
-    
-    - **query**: Search term (minimum 2 characters)
-    - **limit**: Maximum number of results to return
     """
     try:
         # Fetch latest data
@@ -94,15 +162,10 @@ async def search_schemes(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/schemes/{scheme_code}", response_model=SchemeDetail)
+@router.get("/schemes/{scheme_code}")
 async def get_scheme_details(scheme_code: str):
-    """
-    Get details for a specific scheme
-    
-    - **scheme_code**: The scheme code
-    """
+    """Get details for a specific scheme"""
     try:
-        # Get scheme info from MFapi
         info = data_fetcher.get_scheme_info(scheme_code)
         
         if not info:
@@ -127,21 +190,15 @@ async def get_scheme_details(scheme_code: str):
 # Metrics Endpoints
 # ==========================================
 
-@router.get("/metrics/financial/{scheme_code}", response_model=FinancialMetrics)
+@router.get("/metrics/financial/{scheme_code}")
 async def get_financial_metrics(scheme_code: str):
-    """
-    Get financial metrics for a scheme (CAGR, Sharpe, returns, etc.)
-    
-    - **scheme_code**: The scheme code
-    """
+    """Get financial metrics for a scheme"""
     try:
-        # Fetch historical data
         df = data_fetcher.fetch_historical_nav_mfapi(scheme_code)
         
         if df is None or len(df) < 100:
             raise HTTPException(status_code=404, detail="Insufficient historical data")
         
-        # Calculate metrics
         nav_series = df.set_index('Date')['NAV']
         date_series = df['Date']
         
@@ -162,21 +219,15 @@ async def get_financial_metrics(scheme_code: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/metrics/risk/{scheme_code}", response_model=RiskMetrics)
+@router.get("/metrics/risk/{scheme_code}")
 async def get_risk_metrics(scheme_code: str):
-    """
-    Get risk metrics for a scheme (volatility, drawdown, VaR, etc.)
-    
-    - **scheme_code**: The scheme code
-    """
+    """Get risk metrics for a scheme"""
     try:
-        # Fetch historical data
         df = data_fetcher.fetch_historical_nav_mfapi(scheme_code)
         
         if df is None or len(df) < 100:
             raise HTTPException(status_code=404, detail="Insufficient historical data")
         
-        # Calculate metrics
         nav_series = df.set_index('Date')['NAV']
         date_series = df['Date']
         
@@ -198,19 +249,13 @@ async def get_risk_metrics(scheme_code: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/metrics/comprehensive/{scheme_code}", response_model=ComprehensiveMetrics)
+@router.get("/metrics/comprehensive/{scheme_code}")
 async def get_comprehensive_metrics(scheme_code: str):
-    """
-    Get all metrics (financial + risk) for a scheme
-    
-    - **scheme_code**: The scheme code
-    """
+    """Get all metrics (financial + risk) for a scheme"""
     try:
-        # Get scheme info
         info = data_fetcher.get_scheme_info(scheme_code)
         scheme_name = info.get('scheme_name', 'Unknown') if info else 'Unknown'
         
-        # Get both metrics
         financial = await get_financial_metrics(scheme_code)
         risk = await get_risk_metrics(scheme_code)
         
@@ -231,20 +276,14 @@ async def get_comprehensive_metrics(scheme_code: str):
 # Portfolio Endpoints
 # ==========================================
 
-@router.post("/portfolio/analyze", response_model=PortfolioMetrics)
+@router.post("/portfolio/analyze")
 async def analyze_portfolio(portfolio: PortfolioRequest):
-    """
-    Analyze a portfolio of schemes with given weights
-    
-    Weights must sum to 1.0 (100%)
-    """
+    """Analyze a portfolio of schemes with given weights"""
     try:
-        # Validate weights sum to 1
         total_weight = sum([s.weight for s in portfolio.schemes])
         if not (0.99 <= total_weight <= 1.01):
             raise HTTPException(status_code=400, detail="Weights must sum to 1.0")
         
-        # Fetch historical data for all schemes
         schemes_data = {}
         weights = {}
         
@@ -260,10 +299,7 @@ async def analyze_portfolio(portfolio: PortfolioRequest):
             schemes_data[scheme.scheme_code] = nav_series
             weights[scheme.scheme_code] = scheme.weight
         
-        # Calculate portfolio metrics
         metrics = portfolio_analyzer.calculate_portfolio_metrics(schemes_data, weights)
-        
-        # Calculate diversification
         div_score = portfolio_analyzer.get_diversification_score(schemes_data, weights)
         
         return {
@@ -282,73 +318,9 @@ async def analyze_portfolio(portfolio: PortfolioRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/portfolio/compare", response_model=Dict)
-async def compare_schemes_old(scheme_codes: List[str]):
-    """
-    Compare multiple schemes side by side (legacy endpoint)
-    Use /schemes/compare instead
-    
-    - **scheme_codes**: List of scheme codes to compare
-    """
-    try:
-        if len(scheme_codes) < 2:
-            raise HTTPException(status_code=400, detail="Need at least 2 schemes to compare")
-        
-        if len(scheme_codes) > 10:
-            raise HTTPException(status_code=400, detail="Maximum 10 schemes allowed")
-        
-        # Fetch data for all schemes
-        schemes_data = {}
-        
-        for code in scheme_codes:
-            df = data_fetcher.fetch_historical_nav_mfapi(code)
-            if df is not None and len(df) >= 100:
-                nav_series = df.set_index('Date')['NAV']
-                schemes_data[code] = nav_series
-        
-        if len(schemes_data) < 2:
-            raise HTTPException(status_code=404, detail="Insufficient data for comparison")
-        
-        # Compare schemes
-        comparison_df = portfolio_analyzer.compare_schemes(schemes_data)
-        
-        # Format response
-        schemes = []
-        for _, row in comparison_df.iterrows():
-            schemes.append({
-                "scheme": row['Scheme'],
-                "current_nav": row['Current NAV'],
-                "cagr": row['CAGR (%)'] if not pd.isna(row['CAGR (%)']) else None,
-                "return_1y": row['1Y Return (%)'] if not pd.isna(row['1Y Return (%)']) else None,
-                "return_3y": row['3Y Return (%)'] if not pd.isna(row['3Y Return (%)']) else None,
-                "volatility": row['Volatility (%)'],
-                "max_drawdown": row['Max Drawdown (%)'],
-                "sharpe_ratio": row['Sharpe Ratio'] if not pd.isna(row['Sharpe Ratio']) else None
-            })
-        
-        # Find best schemes
-        best_sharpe = comparison_df.loc[comparison_df['Sharpe Ratio'].idxmax(), 'Scheme']
-        best_return = comparison_df.loc[comparison_df['CAGR (%)'].idxmax(), 'Scheme']
-        
-        return {
-            "schemes": schemes,
-            "best_by_sharpe": best_sharpe,
-            "best_by_return": best_return
-        }
-    
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/schemes/compare", response_model=Dict)
+@router.post("/schemes/compare")
 async def compare_schemes_endpoint(scheme_codes: List[str]):
-    """
-    Compare multiple schemes side by side with detailed metrics
-    
-    - **scheme_codes**: List of scheme codes to compare (2-10 schemes)
-    """
+    """Compare multiple schemes side by side"""
     try:
         if len(scheme_codes) < 2:
             raise HTTPException(status_code=400, detail="Need at least 2 schemes")
@@ -356,7 +328,6 @@ async def compare_schemes_endpoint(scheme_codes: List[str]):
         if len(scheme_codes) > 10:
             raise HTTPException(status_code=400, detail="Maximum 10 schemes allowed")
         
-        # Fetch data for all schemes
         schemes_data = {}
         scheme_info = {}
         
@@ -367,20 +338,17 @@ async def compare_schemes_endpoint(scheme_codes: List[str]):
                 nav_series = df.set_index('Date')['NAV']
                 schemes_data[code] = nav_series
                 
-                # Get scheme info
                 info = data_fetcher.get_scheme_info(code)
                 scheme_info[code] = info.get('scheme_name', code) if info else code
         
         if len(schemes_data) < 2:
             raise HTTPException(status_code=404, detail="Insufficient data for comparison")
         
-        # Use comparator to get detailed comparison
         comparison_result = scheme_comparator.compare_schemes(
             list(schemes_data.keys()),
             schemes_data
         )
         
-        # Format response
         df_comparison = comparison_result['comparison']
         
         schemes_list = []
@@ -420,35 +388,26 @@ async def compare_schemes_endpoint(scheme_codes: List[str]):
 # Prediction Endpoints
 # ==========================================
 
-@router.post("/predict/single", response_model=PredictionResponse)
-async def predict_nav(request: PredictionRequest):
-    """
-    Predict future NAV for a scheme using ML model
-    
-    - **scheme_code**: Scheme code
-    - **forecast_days**: Number of days to forecast (1-90 days)
-    """
+@router.post("/predict/single")
+async def predict_nav(request: PortfolioRequest):
+    """Predict future NAV for a scheme using ML model"""
     try:
-        # Fetch historical data
         df = data_fetcher.fetch_historical_nav_mfapi(request.scheme_code)
         
         if df is None or len(df) < 200:
             raise HTTPException(status_code=404, detail="Insufficient historical data for prediction")
         
-        # Get scheme info
         info = data_fetcher.get_scheme_info(request.scheme_code)
         scheme_name = info.get('scheme_name', 'Unknown') if info else 'Unknown'
         
-        # Train predictor
         nav_series = df.set_index('Date')['NAV']
         
         predictor = NAVPredictor(
             lookback_days=60,
-            forecast_days=request.forecast_days
+            forecast_days=request.forecast_days if hasattr(request, 'forecast_days') else 30
         )
         predictor.train(nav_series, validation_split=0.2)
         
-        # Make prediction
         prediction = predictor.predict(nav_series)
         
         return {
@@ -471,29 +430,21 @@ async def predict_nav(request: PredictionRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/predict/sequence", response_model=SequentialPredictionResponse)
+@router.post("/predict/sequence")
 async def predict_sequence(
     scheme_code: str,
     days: int = Query(7, ge=1, le=30, description="Number of days to predict")
 ):
-    """
-    Sequential NAV predictions for multiple days ahead
-    
-    - **scheme_code**: Scheme code
-    - **days**: Number of days to predict (1-30 days)
-    """
+    """Sequential NAV predictions for multiple days ahead"""
     try:
-        # Fetch historical data
         df = data_fetcher.fetch_historical_nav_mfapi(scheme_code)
         
         if df is None or len(df) < 200:
             raise HTTPException(status_code=404, detail="Insufficient historical data")
         
-        # Get scheme info
         info = data_fetcher.get_scheme_info(scheme_code)
         scheme_name = info.get('scheme_name', 'Unknown') if info else 'Unknown'
         
-        # Train and predict
         nav_series = df.set_index('Date')['NAV']
         
         predictor = NAVPredictor(lookback_days=60, forecast_days=1)
@@ -501,7 +452,6 @@ async def predict_sequence(
         
         predictions = predictor.predict_sequence(nav_series, n_days=days)
         
-        # Format response
         pred_list = []
         for _, row in predictions.iterrows():
             pred_list.append({
@@ -528,42 +478,30 @@ async def predict_sequence(
 # Historical Data Endpoints
 # ==========================================
 
-@router.get("/historical/{scheme_code}", response_model=HistoricalDataResponse)
+@router.get("/historical/{scheme_code}")
 async def get_historical_data(
     scheme_code: str,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     limit: int = Query(365, ge=1, le=2000, description="Max data points")
 ):
-    """
-    Get historical NAV data for a scheme
-    
-    - **scheme_code**: Scheme code
-    - **start_date**: Start date (YYYY-MM-DD) - optional
-    - **end_date**: End date (YYYY-MM-DD) - optional
-    - **limit**: Maximum data points to return (1-2000)
-    """
+    """Get historical NAV data for a scheme"""
     try:
-        # Fetch data
         df = data_fetcher.fetch_historical_nav_mfapi(scheme_code)
         
         if df is None or len(df) == 0:
             raise HTTPException(status_code=404, detail="No historical data found")
         
-        # Filter by date range
         if start_date:
             df = df[df['Date'] >= pd.to_datetime(start_date)]
         if end_date:
             df = df[df['Date'] <= pd.to_datetime(end_date)]
         
-        # Limit results
         df = df.tail(limit)
         
-        # Get scheme name
         info = data_fetcher.get_scheme_info(scheme_code)
         scheme_name = info.get('scheme_name', 'Unknown') if info else 'Unknown'
         
-        # Format response
         data_points = []
         for _, row in df.iterrows():
             data_points.append({
@@ -576,6 +514,148 @@ async def get_historical_data(
             "scheme_name": scheme_name,
             "data": data_points,
             "total_records": len(data_points)
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==========================================
+# Portfolio Save/Manage Endpoints (NEW)
+# ==========================================
+
+@router.post("/portfolio/save", response_model=PortfolioResponse)
+async def save_portfolio_endpoint(portfolio_req: PortfolioRequest):
+    """Save a new portfolio"""
+    try:
+        if not portfolio_req.name or len(portfolio_req.name.strip()) == 0:
+            raise HTTPException(status_code=400, detail="Portfolio name cannot be empty")
+        
+        if abs(portfolio_req.total_weight - 1.0) > 0.01:
+            raise HTTPException(status_code=400, detail=f"Total weight must be 100%, got {portfolio_req.total_weight*100:.1f}%")
+        
+        if len(portfolio_req.schemes) < 2:
+            raise HTTPException(status_code=400, detail="Portfolio must have at least 2 schemes")
+        
+        existing_portfolios = list_portfolios()
+        if any(p['name'] == portfolio_req.name for p in existing_portfolios):
+            raise HTTPException(status_code=409, detail=f"Portfolio '{portfolio_req.name}' already exists")
+        
+        portfolio_id = str(uuid.uuid4())
+        
+        portfolio = {
+            "id": portfolio_id,
+            "name": portfolio_req.name,
+            "description": portfolio_req.description,
+            "schemes": [
+                {
+                    "scheme_code": s.scheme_code,
+                    "scheme_name": s.scheme_name,
+                    "weight": s.weight
+                }
+                for s in portfolio_req.schemes
+            ],
+            "created_at": portfolio_req.created_at,
+            "total_weight": portfolio_req.total_weight
+        }
+        
+        save_portfolio_to_file(portfolio_id, portfolio)
+        
+        return PortfolioResponse(
+            success=True,
+            portfolio_id=portfolio_id,
+            message=f"Portfolio '{portfolio_req.name}' saved successfully"
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/portfolio/list")
+async def get_portfolios_list():
+    """Get list of all saved portfolios"""
+    try:
+        portfolios = list_portfolios()
+        return {
+            "success": True,
+            "total": len(portfolios),
+            "portfolios": portfolios
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/portfolio/{portfolio_id}")
+async def get_portfolio_endpoint(portfolio_id: str):
+    """Get a specific portfolio"""
+    try:
+        portfolio = load_portfolio(portfolio_id)
+        if not portfolio:
+            raise HTTPException(status_code=404, detail=f"Portfolio '{portfolio_id}' not found")
+        return {
+            "success": True,
+            "portfolio": portfolio
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/portfolio/{portfolio_id}")
+async def delete_portfolio_endpoint(portfolio_id: str):
+    """Delete a portfolio"""
+    try:
+        portfolio_file = PORTFOLIOS_DIR / f"{portfolio_id}.json"
+        if not portfolio_file.exists():
+            raise HTTPException(status_code=404, detail=f"Portfolio '{portfolio_id}' not found")
+        portfolio_file.unlink()
+        return {
+            "success": True,
+            "message": "Portfolio deleted successfully"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/portfolio/{portfolio_id}")
+async def update_portfolio_endpoint(portfolio_id: str, portfolio_req: PortfolioRequest):
+    """Update an existing portfolio"""
+    try:
+        portfolio_file = PORTFOLIOS_DIR / f"{portfolio_id}.json"
+        if not portfolio_file.exists():
+            raise HTTPException(status_code=404, detail=f"Portfolio '{portfolio_id}' not found")
+        
+        if abs(portfolio_req.total_weight - 1.0) > 0.01:
+            raise HTTPException(status_code=400, detail=f"Total weight must be 100%")
+        
+        portfolio = load_portfolio(portfolio_id)
+        
+        portfolio['name'] = portfolio_req.name
+        portfolio['description'] = portfolio_req.description
+        portfolio['schemes'] = [
+            {
+                "scheme_code": s.scheme_code,
+                "scheme_name": s.scheme_name,
+                "weight": s.weight
+            }
+            for s in portfolio_req.schemes
+        ]
+        portfolio['total_weight'] = portfolio_req.total_weight
+        portfolio['updated_at'] = datetime.now().isoformat()
+        
+        save_portfolio_to_file(portfolio_id, portfolio)
+        
+        return {
+            "success": True,
+            "portfolio_id": portfolio_id,
+            "message": "Portfolio updated successfully"
         }
     
     except HTTPException:

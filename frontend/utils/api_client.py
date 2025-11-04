@@ -359,3 +359,56 @@ class APIClient:
                 results[code] = prediction
         
         return results
+    def save_portfolio(self, portfolio_data: dict) -> dict:
+        """Save portfolio to backend"""
+        try:
+            response = requests.post(
+                f"{self.base_url}/portfolio/save",
+                json=portfolio_data,
+                timeout=self.timeout
+            )
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            st.error(f"API Error: {str(e)}")
+            return {"success": False, "error": str(e)}
+    
+    def get_saved_portfolios(self) -> list:
+        """Get list of saved portfolios"""
+        try:
+            response = requests.get(
+                f"{self.base_url}/portfolio/list",
+                timeout=self.timeout
+            )
+            response.raise_for_status()
+            data = response.json()
+            return data.get('portfolios', [])
+        except Exception as e:
+            st.error(f"API Error: {str(e)}")
+            return []
+    
+    def get_portfolio(self, portfolio_id: str) -> dict:
+        """Get portfolio details"""
+        try:
+            response = requests.get(
+                f"{self.base_url}/portfolio/{portfolio_id}",
+                timeout=self.timeout
+            )
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            st.error(f"API Error: {str(e)}")
+            return {}
+    
+    def delete_portfolio(self, portfolio_id: str) -> dict:
+        """Delete portfolio"""
+        try:
+            response = requests.delete(
+                f"{self.base_url}/portfolio/{portfolio_id}",
+                timeout=self.timeout
+            )
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            st.error(f"API Error: {str(e)}")
+            return {"success": False, "error": str(e)}
