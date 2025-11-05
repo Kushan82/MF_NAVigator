@@ -45,6 +45,9 @@ class PortfolioResponse(BaseModel):
     message: str = ""
     error: str = None
 
+class PredictionRequestModel(BaseModel):
+    scheme_code: str
+    forecast_days: int = 30
 
 # ==========================================
 # PORTFOLIO STORAGE
@@ -389,29 +392,35 @@ async def compare_schemes_endpoint(scheme_codes: List[str]):
 # ==========================================
 
 @router.post("/predict/single")
-async def predict_nav(request: PortfolioRequest):
+async def predict_nav(request: PredictionRequestModel):
     """Predict future NAV for a scheme using ML model"""
     try:
-        df = data_fetcher.fetch_historical_nav_mfapi(request.scheme_code)
+        scheme_code = request.scheme_code
+        forecast_days = request.forecast_days
+        
+        df = data_fetcher.fetch_historical_nav_mfapi(scheme_code)
         
         if df is None or len(df) < 200:
-            raise HTTPException(status_code=404, detail="Insufficient historical data for prediction")
+            raise HTTPException(
+                status_code=404, 
+                detail=f"Insufficient historical data for prediction. Found {len(df) if df is not None else 0} days, need 200+."
+            )
         
-        info = data_fetcher.get_scheme_info(request.scheme_code)
+        info = data_fetcher.get_scheme_info(scheme_code)
         scheme_name = info.get('scheme_name', 'Unknown') if info else 'Unknown'
         
         nav_series = df.set_index('Date')['NAV']
         
         predictor = NAVPredictor(
             lookback_days=60,
-            forecast_days=request.forecast_days if hasattr(request, 'forecast_days') else 30
+            forecast_days=forecast_days
         )
         predictor.train(nav_series, validation_split=0.2)
         
         prediction = predictor.predict(nav_series)
         
         return {
-            "scheme_code": request.scheme_code,
+            "scheme_code": scheme_code,
             "scheme_name": scheme_name,
             "current_nav": float(prediction['Current_NAV'].iloc[0]),
             "prediction": {
@@ -429,10 +438,9 @@ async def predict_nav(request: PortfolioRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-
-@router.post("/predict/sequence")
+@router.get("/predict/sequence")
 async def predict_sequence(
-    scheme_code: str,
+    scheme_code: str = Query(..., description="Scheme code"),
     days: int = Query(7, ge=1, le=30, description="Number of days to predict")
 ):
     """Sequential NAV predictions for multiple days ahead"""
@@ -472,6 +480,7 @@ async def predict_sequence(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 
 # ==========================================
