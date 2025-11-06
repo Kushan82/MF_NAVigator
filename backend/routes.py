@@ -11,7 +11,7 @@ import json
 import uuid
 from pathlib import Path
 from pydantic import BaseModel
-
+from data.fetch_aum_data import AUMDataFetcher
 from backend.schemas import *
 from data.fetch_data import MutualFundDataFetcher
 from analytics.financial_metrics import FinancialMetricsCalculator
@@ -675,3 +675,51 @@ async def update_portfolio_endpoint(portfolio_id: str, portfolio_req: PortfolioR
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+@router.get("/aum/top_amcs")
+async def get_top_amcs_by_aum(limit: int = Query(10, ge=1, le=50)):
+    """Get top AMCs by actual AUM"""
+    try:
+        top_amcs = AUMDataFetcher.get_top_amc_by_aum(limit=limit)
+        
+        if top_amcs is None:
+            raise HTTPException(status_code=503, detail="AUM data not available")
+        
+        # Convert to dict
+        amc_data = [
+            {"amc": amc, "aum": float(aum_value)}
+            for amc, aum_value in top_amcs.items()
+        ]
+        
+        return {
+            "total_amcs": len(amc_data),
+            "data": amc_data,
+            "note": "AUM data updated weekly from external source"
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/aum/total")
+async def get_total_industry_aum():
+    """Get total AUM across all schemes"""
+    try:
+        total_aum = AUMDataFetcher.get_total_aum()
+        
+        if total_aum is None:
+            raise HTTPException(status_code=503, detail="AUM data not available")
+        
+        return {
+            "total_aum": float(total_aum),
+            "total_aum_crores": float(total_aum / 100),
+            "total_aum_lakh_crores": float(total_aum / 100000),
+            "currency": "INR",
+            "note": "AUM data updated weekly"
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))    
