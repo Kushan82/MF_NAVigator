@@ -123,12 +123,16 @@ async def health_check():
 
 @router.get("/schemes/search")
 async def search_schemes(
-    query: str = Query(..., min_length=2, description="Search query"),
-    limit: int = Query(50, ge=1, le=200, description="Max results")
+    query: str = Query(..., min_length=2),
+    limit: int = Query(50, ge=1, le=200),
+    force_refresh: bool = Query(False, description="Force refresh data from AMFI")
 ):
-    """
-    Search mutual fund schemes by name, AMC, or code
-    """
+    # Fetch data with force_refresh option
+    df = data_fetcher.fetch_amfi_daily_nav(
+        save_to_cache=True, 
+        force_refresh=force_refresh
+    )
+    
     try:
         # Fetch latest data
         df = data_fetcher.fetch_amfi_daily_nav(save_to_cache=False)
