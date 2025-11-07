@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings
 from pathlib import Path
+from typing import Optional
 
 class Settings(BaseSettings):
     """Application settings"""
@@ -40,9 +41,15 @@ class Settings(BaseSettings):
     # Logging
     LOG_LEVEL: str = "INFO"
     
+    # ✅ ADDED: API Keys (Optional - for news agent)
+    OPENAI_API_KEY: Optional[str] = None
+    NEWS_API_KEY: Optional[str] = None
+    
     class Config:
         env_file = ".env"
         case_sensitive = True
+        extra = "ignore"  # ✅ ADDED: Ignore extra fields from .env
+
 
 # Create global settings instance
 settings = Settings()

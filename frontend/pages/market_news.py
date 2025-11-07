@@ -15,21 +15,17 @@ def render():
     """Render market news page"""
     
     st.markdown("# 📰 Market News")
-    st.markdown("Latest news about equity mutual funds and Indian markets")
+    st.markdown("Latest news about equity and hybrid mutual funds, portfolio strategies, and expert insights")
     st.markdown("---")
     
     # Create tabs
-    tab1, tab2, tab3 = st.tabs(["📰 Latest News", "🔍 Search Topics", "ℹ️ Sources"])
+    tab1, tab2 = st.tabs(["📰 Latest News", "ℹ️ Sources"])
     
     with tab1:
-        render_latest_news()
+        render_topic_search()  # Removed search topics
     
     with tab2:
-        render_topic_search()
-    
-    with tab3:
         render_sources_info()
-
 
 def render_latest_news():
     """Render latest news section"""
@@ -85,62 +81,51 @@ def render_latest_news():
 
 
 def render_topic_search():
-    """Render topic search section"""
+    """Render latest equity and hybrid mutual fund news"""
     
-    st.markdown("### 🔍 Search Specific Topics")
+    st.markdown("### 📰 Latest Market News")
     
-    # Predefined topics
-    st.markdown("#### Quick Topics")
-    
-    col1, col2, col3 = st.columns(3)
+    # Settings
+    col1, col2 = st.columns(2)
     
     with col1:
-        if st.button("📈 Market Outlook", use_container_width=True):
-            search_topic("market outlook India")
-    
-    with col2:
-        if st.button("💰 Top Mutual Funds", use_container_width=True):
-            search_topic("best mutual funds India")
-    
-    with col3:
-        if st.button("📊 Market Analysis", use_container_width=True):
-            search_topic("equity market analysis India")
-    
-    st.markdown("---")
-    
-    # Custom search
-    st.markdown("#### Custom Search")
-    
-    col1, col2 = st.columns([3, 1])
-    
-    with col1:
-        custom_topic = st.text_input(
-            "Enter topic:",
-            placeholder="e.g., SBI mutual funds, HDFC equity",
-            key="custom_news_topic"
+        limit = st.slider(
+            "Number of articles",
+            min_value=5,
+            max_value=50,
+            value=20,
+            key="news_limit"
         )
     
     with col2:
-        st.write("")
-        st.write("")
-        if st.button("🔍 Search", use_container_width=True, type="primary"):
-            if custom_topic:
-                search_topic(custom_topic)
+        if st.button("🔄 Refresh News", use_container_width=True, type="primary"):
+            st.session_state['search_news_data'] = None
+            st.rerun()
     
-    # Display search results
+    # Fetch news
+    if 'search_news_data' not in st.session_state:
+        with st.spinner("📡 Fetching latest equity and hybrid mutual fund news..."):
+            news_data = api.get_market_news(
+                topic="equity and hybrid mutual funds",
+                limit=limit
+            )
+            
+            if news_data and news_data.get('success'):
+                st.session_state['search_news_data'] = news_data
+                st.success(f"✅ Loaded {news_data.get('total_articles', 0)} relevant articles")
+            else:
+                st.error("❌ Unable to fetch news. Please check backend is running.")
+                return
+    
+    # Display news
     if 'search_news_data' in st.session_state:
-        st.markdown("---")
-        st.markdown("### 📊 Search Results")
-        
         news_data = st.session_state['search_news_data']
         articles = news_data.get('articles', [])
         
         if articles:
-            st.success(f"✅ Found {len(articles)} articles")
             render_news_cards(articles)
         else:
-            st.warning("No articles found for this topic")
-
+            st.warning("No relevant articles found for equity/hybrid mutual funds")
 
 def search_topic(topic: str):
     """Search news by topic"""
