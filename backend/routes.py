@@ -11,7 +11,7 @@ import json
 import uuid
 from pathlib import Path
 from pydantic import BaseModel
-from data.fetch_aum_data import AUMDataFetcher
+from data.fetch_aum_data import RealAUMDataFetcher
 from backend.schemas import *
 from data.fetch_data import MutualFundDataFetcher
 from analytics.financial_metrics import FinancialMetricsCalculator
@@ -679,7 +679,7 @@ async def update_portfolio_endpoint(portfolio_id: str, portfolio_req: PortfolioR
 async def get_top_amcs_by_aum(limit: int = Query(10, ge=1, le=50)):
     """Get top AMCs by actual AUM"""
     try:
-        top_amcs = AUMDataFetcher.get_top_amc_by_aum(limit=limit)
+        top_amcs = RealAUMDataFetcher.get_top_amc_by_aum(limit=limit)
         
         if top_amcs is None:
             raise HTTPException(status_code=503, detail="AUM data not available")
@@ -706,7 +706,7 @@ async def get_top_amcs_by_aum(limit: int = Query(10, ge=1, le=50)):
 async def get_total_industry_aum():
     """Get total AUM across all schemes"""
     try:
-        total_aum = AUMDataFetcher.get_total_aum()
+        total_aum = RealAUMDataFetcher.get_total_aum()
         
         if total_aum is None:
             raise HTTPException(status_code=503, detail="AUM data not available")
