@@ -1,6 +1,6 @@
 """
 Compare Schemes Page - Side-by-side comparison with advanced Plotly visualizations
-FIXED: No timeout when adding schemes
+COMPLETE FIX: No timeout, no unnecessary reruns, keeps all Plotly charts
 """
 
 import streamlit as st
@@ -25,7 +25,11 @@ def render():
     if 'compare_schemes_list' not in st.session_state:
         st.session_state['compare_schemes_list'] = []
     
-    # Display current list
+    # Initialize show_add_form flag
+    if 'show_compare_add_form' not in st.session_state:
+        st.session_state['show_compare_add_form'] = False
+    
+    # Display current list or add interface
     if len(st.session_state['compare_schemes_list']) > 0:
         render_comparison_interface()
     else:
@@ -83,17 +87,27 @@ def display_search_results_for_add(results: dict):
         display_text = f"{scheme['scheme_name'][:40]} - {scheme['scheme_code']} ({scheme['amc'][:15]})"
         scheme_options[display_text] = scheme
     
-    # Select scheme
-    selected_display = st.selectbox(
+    # Initialize selected index in session state to prevent reset
+    if 'compare_selected_idx' not in st.session_state:
+        st.session_state['compare_selected_idx'] = 0
+    
+    # Select scheme with persistent index
+    selected_idx = st.selectbox(
         "Choose a scheme to add:",
-        options=list(scheme_options.keys()),
+        options=range(len(schemes_list)),
+        index=st.session_state['compare_selected_idx'],
+        format_func=lambda x: f"{schemes_list[x]['scheme_name'][:40]} - {schemes_list[x]['scheme_code']} ({schemes_list[x]['amc'][:15]})",
         key=f"compare_add_selector_{results['total_results']}"
     )
     
-    selected_scheme = scheme_options[selected_display]
+    # Update session state
+    st.session_state['compare_selected_idx'] = selected_idx
+    
+    selected_scheme = schemes_list[selected_idx]
     selected_code = selected_scheme['scheme_code']
     
     # Display info
+    st.markdown("---")
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
@@ -106,6 +120,7 @@ def display_search_results_for_add(results: dict):
         st.metric("Date", selected_scheme['nav_date'])
     
     # Add buttons
+    st.markdown("---")
     col1, col2, col3 = st.columns(3)
     
     with col1:
@@ -113,9 +128,9 @@ def display_search_results_for_add(results: dict):
             if selected_code not in st.session_state['compare_schemes_list']:
                 st.session_state['compare_schemes_list'].append(selected_code)
                 st.success(f"✅ Added! Total: {len(st.session_state['compare_schemes_list'])}")
-                # DON'T RERUN HERE - just show success
+                # DON'T RERUN HERE - just show success message
             else:
-                st.warning("Already in comparison list")
+                st.warning("⚠️ Already in comparison list")
     
     with col2:
         if st.button("🔄 Add & Search More", use_container_width=True, key="compare_add_continue"):
@@ -123,11 +138,13 @@ def display_search_results_for_add(results: dict):
                 st.session_state['compare_schemes_list'].append(selected_code)
             # Clear search to allow new search
             st.session_state['compare_search_results'] = None
+            st.session_state['compare_selected_idx'] = 0
             st.rerun()
     
     with col3:
         if st.button("❌ Cancel", use_container_width=True, key="compare_cancel_btn"):
             st.session_state['compare_search_results'] = None
+            st.session_state['compare_selected_idx'] = 0
             st.rerun()
 
 
@@ -179,9 +196,10 @@ def render_comparison_interface():
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
+        # FIXED: Toggle flag instead of setting it
         if st.button("➕ Add More", use_container_width=True, key="comp_add_more"):
-            st.session_state['show_add_form'] = True
-            st.rerun()
+            st.session_state['show_compare_add_form'] = not st.session_state.get('show_compare_add_form', False)
+            # DON'T RERUN - let it display naturally
     
     with col2:
         if len(st.session_state['compare_schemes_list']) >= 2:
@@ -195,17 +213,23 @@ def render_comparison_interface():
         if st.button("🗑️ Clear All", use_container_width=True, key="comp_clear_all"):
             st.session_state['compare_schemes_list'] = []
             st.session_state['compare_search_results'] = None
+            st.session_state['show_compare_add_form'] = False
             st.rerun()
     
     with col4:
         if st.button("📥 Export CSV", use_container_width=True, key="comp_export"):
             export_comparison_csv()
     
-    # Show add form if requested
-    if st.session_state.get('show_add_form'):
+    # Show add form if flag is True (without rerun)
+    if st.session_state.get('show_compare_add_form'):
         st.markdown("---")
+        st.markdown("### ➕ Add More Schemes")
         render_add_scheme_interface()
-        st.session_state['show_add_form'] = False
+        
+        # Add a close button
+        if st.button("❌ Close Add Form", use_container_width=True, key="comp_close_add_form"):
+            st.session_state['show_compare_add_form'] = False
+            st.rerun()
     
     # Run comparison
     if st.session_state.get('run_comparison'):
@@ -259,7 +283,7 @@ def render_comparison_results():
             data = api.compare_schemes(st.session_state['compare_schemes_list'])
             
             if not data or not data.get('schemes'):
-                st.error("❌ Unable to compare schemes")
+                st.error("❌ Unable to compare schemes. Please try again.")
                 st.session_state['run_comparison'] = False
                 return
             
@@ -296,7 +320,7 @@ def render_comparison_results():
             st.session_state['run_comparison'] = False
         
         except Exception as e:
-            st.error(f"❌ Error: {str(e)}")
+            st.error(f"❌ Error during comparison: {str(e)}")
             st.session_state['run_comparison'] = False
 
 
@@ -317,6 +341,9 @@ def render_summary_table(df: pd.DataFrame, data: dict):
     display_df['sharpe_ratio'] = display_df['sharpe_ratio'].apply(lambda x: f"{x:.3f}" if x != 0 else "N/A")
     display_df['volatility'] = display_df['volatility'].apply(lambda x: f"{x*100:.2f}%")
     display_df['max_drawdown'] = display_df['max_drawdown'].apply(lambda x: f"{abs(x)*100:.2f}%")
+    
+    # Rename columns for display
+    display_df.columns = ['Code', 'Scheme Name', 'NAV', 'CAGR', 'Sharpe Ratio', 'Volatility', 'Max Drawdown']
     
     st.dataframe(
         display_df,
@@ -347,9 +374,9 @@ def render_summary_table(df: pd.DataFrame, data: dict):
     st.markdown("---")
     csv = df.to_csv(index=False)
     st.download_button(
-        label="📥 Download Comparison CSV",
+        label="📥 Download Full Comparison CSV",
         data=csv,
-        file_name="scheme_comparison.csv",
+        file_name="scheme_comparison_full.csv",
         mime="text/csv",
         key="comp_download_results"
     )
@@ -373,16 +400,18 @@ def render_returns_analysis(df: pd.DataFrame):
             marker_color=colors,
             text=[f"{x:.2f}%" for x in cagr_data['cagr'] * 100],
             textposition='outside',
-            name='CAGR'
+            name='CAGR',
+            hovertemplate='%{x}<br>CAGR: %{y:.2f}%<extra></extra>'
         ))
         
         fig1.update_layout(
             title="Compound Annual Growth Rate (CAGR) Comparison",
             xaxis_title="Scheme Code",
             yaxis_title="CAGR (%)",
-            height=400,
+            height=450,
             showlegend=False,
-            hovermode='x unified'
+            hovermode='x unified',
+            xaxis_tickangle=-45
         )
         
         st.plotly_chart(fig1, use_container_width=True)
@@ -390,38 +419,45 @@ def render_returns_analysis(df: pd.DataFrame):
         st.warning("CAGR data not available for comparison")
     
     # 2. Annualized Returns vs Sharpe Ratio - Grouped Bar
-    fig2 = go.Figure()
+    st.markdown("---")
+    fig2 = make_subplots(specs=[[{"secondary_y": True}]])
     
-    fig2.add_trace(go.Bar(
-        name='Annualized Return',
-        x=df['scheme_code'],
-        y=df['annualized_return'] * 100,
-        marker_color='lightblue'
-    ))
+    fig2.add_trace(
+        go.Bar(
+            name='Annualized Return (%)',
+            x=df['scheme_code'],
+            y=df['annualized_return'] * 100,
+            marker_color='lightblue',
+            hovertemplate='Return: %{y:.2f}%<extra></extra>'
+        ),
+        secondary_y=False
+    )
     
     sharpe_data = df[df['sharpe_ratio'] != 0]
     if len(sharpe_data) > 0:
-        fig2.add_trace(go.Bar(
-            name='Sharpe Ratio',
-            x=sharpe_data['scheme_code'],
-            y=sharpe_data['sharpe_ratio'],
-            marker_color='orange',
-            yaxis='y2'
-        ))
+        fig2.add_trace(
+            go.Scatter(
+                name='Sharpe Ratio',
+                x=sharpe_data['scheme_code'],
+                y=sharpe_data['sharpe_ratio'],
+                marker_color='orange',
+                mode='lines+markers',
+                marker=dict(size=10),
+                hovertemplate='Sharpe: %{y:.3f}<extra></extra>'
+            ),
+            secondary_y=True
+        )
     
     fig2.update_layout(
-        title="Returns vs Risk-Adjusted Returns",
-        xaxis_title="Scheme Code",
-        yaxis_title="Annualized Return (%)",
-        yaxis2=dict(
-            title="Sharpe Ratio",
-            overlaying='y',
-            side='right'
-        ),
-        height=400,
-        barmode='group',
-        hovermode='x unified'
+        title="Returns vs Risk-Adjusted Returns (Sharpe Ratio)",
+        height=450,
+        hovermode='x unified',
+        xaxis_tickangle=-45
     )
+    
+    fig2.update_xaxes(title_text="Scheme Code")
+    fig2.update_yaxes(title_text="Annualized Return (%)", secondary_y=False)
+    fig2.update_yaxes(title_text="Sharpe Ratio", secondary_y=True)
     
     st.plotly_chart(fig2, use_container_width=True)
     
@@ -432,18 +468,24 @@ def render_returns_analysis(df: pd.DataFrame):
     col1, col2 = st.columns(2)
     
     with col1:
+        st.markdown("**By CAGR (Highest to Lowest):**")
         cagr_ranked = df[df['cagr'] != 0].sort_values('cagr', ascending=False)
         if len(cagr_ranked) > 0:
-            st.markdown("**By CAGR:**")
             for i, (idx, row) in enumerate(cagr_ranked.iterrows(), 1):
-                st.write(f"{i}. {row['scheme_code']}: {row['cagr']*100:.2f}%")
+                emoji = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else "🔹"
+                st.write(f"{emoji} **{i}.** {row['scheme_code']}: **{row['cagr']*100:.2f}%**")
+        else:
+            st.info("No CAGR data available")
     
     with col2:
+        st.markdown("**By Sharpe Ratio (Best Risk-Adjusted):**")
         sharpe_ranked = df[df['sharpe_ratio'] != 0].sort_values('sharpe_ratio', ascending=False)
         if len(sharpe_ranked) > 0:
-            st.markdown("**By Sharpe Ratio:**")
             for i, (idx, row) in enumerate(sharpe_ranked.iterrows(), 1):
-                st.write(f"{i}. {row['scheme_code']}: {row['sharpe_ratio']:.3f}")
+                emoji = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else "🔹"
+                st.write(f"{emoji} **{i}.** {row['scheme_code']}: **{row['sharpe_ratio']:.3f}**")
+        else:
+            st.info("No Sharpe Ratio data available")
 
 
 def render_risk_analysis(df: pd.DataFrame):
@@ -460,20 +502,23 @@ def render_risk_analysis(df: pd.DataFrame):
         marker_color='orange',
         text=[f"{x:.2f}%" for x in df['volatility'] * 100],
         textposition='outside',
-        name='Volatility'
+        name='Volatility',
+        hovertemplate='%{x}<br>Volatility: %{y:.2f}%<extra></extra>'
     ))
     
     fig1.update_layout(
-        title="Volatility (Risk) Comparison",
+        title="Volatility (Risk) Comparison - Lower is Better",
         xaxis_title="Scheme Code",
         yaxis_title="Volatility (%)",
-        height=400,
-        showlegend=False
+        height=450,
+        showlegend=False,
+        xaxis_tickangle=-45
     )
     
     st.plotly_chart(fig1, use_container_width=True)
     
     # 2. Maximum Drawdown Comparison
+    st.markdown("---")
     fig2 = go.Figure()
     
     fig2.add_trace(go.Bar(
@@ -482,15 +527,17 @@ def render_risk_analysis(df: pd.DataFrame):
         marker_color='red',
         text=[f"{x:.2f}%" for x in df['max_drawdown'].abs() * 100],
         textposition='outside',
-        name='Max Drawdown'
+        name='Max Drawdown',
+        hovertemplate='%{x}<br>Max Drawdown: %{y:.2f}%<extra></extra>'
     ))
     
     fig2.update_layout(
-        title="Maximum Drawdown (Worst Loss) Comparison",
+        title="Maximum Drawdown (Worst Loss) - Lower is Better",
         xaxis_title="Scheme Code",
         yaxis_title="Max Drawdown (%)",
-        height=400,
-        showlegend=False
+        height=450,
+        showlegend=False,
+        xaxis_tickangle=-45
     )
     
     st.plotly_chart(fig2, use_container_width=True)
@@ -516,21 +563,24 @@ def render_risk_analysis(df: pd.DataFrame):
         text=risk_metrics.values.T,
         texttemplate='%{text:.4f}',
         textfont={"size": 10},
-        colorbar=dict(title="Risk Level")
+        colorbar=dict(title="Risk Level"),
+        hovertemplate='%{y}<br>%{x}<br>Value: %{text:.4f}<extra></extra>'
     ))
     
     fig3.update_layout(
-        title="Risk Metrics Heatmap (Higher = More Risk)",
+        title="Risk Metrics Heatmap (Darker Red = Higher Risk)",
         height=400
     )
     
     st.plotly_chart(fig3, use_container_width=True)
+    
+    st.info("💡 **Tip:** Look for schemes with lighter colors across all metrics for lower overall risk.")
 
 
 def render_risk_return_scatter(df: pd.DataFrame):
     """Render risk-return scatter plot"""
     
-    st.markdown("#### 🎯 Risk-Return Profile")
+    st.markdown("#### 🎯 Risk vs Return Profile")
     st.markdown("*Ideal schemes are in the top-left quadrant (high return, low risk)*")
     
     # Filter data
@@ -556,24 +606,30 @@ def render_risk_return_scatter(df: pd.DataFrame):
             color=scatter_data['sharpe_ratio'],
             colorscale='Viridis',
             showscale=True,
-            colorbar=dict(title="Sharpe Ratio"),
+            colorbar=dict(title="Sharpe<br>Ratio"),
             line=dict(width=2, color='white')
         ),
         text=scatter_data['scheme_code'],
         textposition='top center',
         name='Schemes',
-        hovertemplate='%{text}<br>Risk: %{x:.2f}%<br>Return: %{y:.2f}%<extra></extra>'
+        hovertemplate='<b>%{text}</b><br>Risk: %{x:.2f}%<br>Return: %{y:.2f}%<br>Sharpe: %{marker.color:.3f}<extra></extra>'
     ))
     
     # Add quadrant lines
     avg_return = scatter_data['cagr'].mean() * 100
     avg_risk = scatter_data['volatility'].mean() * 100
     
-    fig.add_hline(y=avg_return, line_dash="dash", line_color="gray", annotation_text="Avg Return")
-    fig.add_vline(x=avg_risk, line_dash="dash", line_color="gray", annotation_text="Avg Risk")
+    fig.add_hline(y=avg_return, line_dash="dash", line_color="gray", annotation_text="Avg Return", annotation_position="right")
+    fig.add_vline(x=avg_risk, line_dash="dash", line_color="gray", annotation_text="Avg Risk", annotation_position="top")
+    
+    # Add quadrant labels
+    fig.add_annotation(x=avg_risk*0.5, y=avg_return*1.5, text="🎯 Best<br>(Low Risk, High Return)", showarrow=False, font=dict(size=10, color="green"))
+    fig.add_annotation(x=avg_risk*1.5, y=avg_return*1.5, text="📈 Aggressive<br>(High Risk, High Return)", showarrow=False, font=dict(size=10))
+    fig.add_annotation(x=avg_risk*0.5, y=avg_return*0.5, text="🛡️ Conservative<br>(Low Risk, Low Return)", showarrow=False, font=dict(size=10))
+    fig.add_annotation(x=avg_risk*1.5, y=avg_return*0.5, text="⚠️ Avoid<br>(High Risk, Low Return)", showarrow=False, font=dict(size=10, color="red"))
     
     fig.update_layout(
-        title="Risk vs Return Analysis",
+        title="Risk vs Return Analysis with Sharpe Ratio",
         xaxis_title="Risk (Volatility %)",
         yaxis_title="Return (CAGR %)",
         height=600,
@@ -592,18 +648,19 @@ def render_risk_return_scatter(df: pd.DataFrame):
     with col1:
         st.markdown("""
         **Quadrant Analysis:**
-        - **Top-Left**: High return, low risk (Best)
-        - **Top-Right**: High return, high risk
-        - **Bottom-Left**: Low return, low risk
-        - **Bottom-Right**: Low return, high risk (Worst)
+        - **🎯 Top-Left:** High return, low risk (Best schemes)
+        - **📈 Top-Right:** High return, high risk (Aggressive)
+        - **🛡️ Bottom-Left:** Low return, low risk (Conservative)
+        - **⚠️ Bottom-Right:** Low return, high risk (Avoid these)
         """)
     
     with col2:
         st.markdown("""
         **Color Coding (Sharpe Ratio):**
-        - **Darker**: Better risk-adjusted returns
-        - **Lighter**: Poorer risk-adjusted returns
-        - Look for schemes with high Sharpe values
+        - **Yellow/Bright:** Better risk-adjusted returns
+        - **Dark Blue:** Poorer risk-adjusted returns
+        - Higher Sharpe = More return per unit of risk
+        - Look for bright colors in top-left quadrant
         """)
 
 
@@ -614,7 +671,7 @@ def render_radar_chart(df: pd.DataFrame):
     st.markdown("*Compare schemes across multiple metrics simultaneously*")
     
     # Prepare data
-    metrics_to_plot = ['cagr', 'sharpe_ratio', 'volatility', 'max_drawdown', 'sortino_ratio']
+    metrics_to_plot = ['cagr', 'sharpe_ratio', 'sortino_ratio', 'volatility', 'max_drawdown']
     available_metrics = [m for m in metrics_to_plot if m in df.columns]
     
     if len(available_metrics) < 3:
@@ -636,7 +693,7 @@ def render_radar_chart(df: pd.DataFrame):
                 col_max = df[metric].max()
                 
                 if col_max != col_min:
-                    # Invert for risk metrics
+                    # Invert for risk metrics (lower is better)
                     if metric in ['volatility', 'max_drawdown']:
                         normalized = 100 - ((val - col_min) / (col_max - col_min) * 100)
                     else:
@@ -654,7 +711,8 @@ def render_radar_chart(df: pd.DataFrame):
                 r=values,
                 theta=labels,
                 fill='toself',
-                name=row['scheme_code']
+                name=row['scheme_code'],
+                hovertemplate='%{theta}<br>Score: %{r:.1f}<extra></extra>'
             ))
     
     fig.update_layout(
@@ -665,7 +723,7 @@ def render_radar_chart(df: pd.DataFrame):
             )
         ),
         showlegend=True,
-        title="Multi-Metric Comparison (Higher = Better)",
+        title="Multi-Metric Comparison (Higher = Better Performance)",
         height=600
     )
     
@@ -673,7 +731,9 @@ def render_radar_chart(df: pd.DataFrame):
     
     # Legend
     st.info("""
-    **Note:** All metrics are normalized to 0-100 scale.
-    - Risk metrics (volatility, drawdown) are inverted (lower risk = higher score)
+    **📌 How to Read:**
+    - All metrics normalized to 0-100 scale
+    - Risk metrics (volatility, drawdown) inverted: lower risk = higher score
     - Larger area = Better overall performance
+    - Look for schemes with balanced large polygons
     """)
