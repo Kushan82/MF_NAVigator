@@ -19,8 +19,8 @@ from analytics.risk_metrics import RiskMetricsCalculator
 from analytics.portfolio_analysis import PortfolioAnalyzer
 from analytics.comparison import SchemeComparator
 from models.predictor import NAVPredictor
-
-
+from backend.agents.news_agent import NewsAgent
+import os
 # ==========================================
 # PORTFOLIO MODELS (Pydantic)
 # ==========================================
@@ -49,6 +49,26 @@ class PredictionRequestModel(BaseModel):
     scheme_code: str
     forecast_days: int = 30
 
+# ==========================================
+# ROUTERS
+# ==========================================
+router = APIRouter()
+health_router = APIRouter()
+# ==========================================
+# INITIALIZE COMPONENTS
+# ==========================================
+data_fetcher = MutualFundDataFetcher()
+fin_calc = FinancialMetricsCalculator()
+risk_calc = RiskMetricsCalculator()
+portfolio_analyzer = PortfolioAnalyzer()
+scheme_comparator = SchemeComparator()
+
+try:
+    news_agent = NewsAgent()
+    print("✅ News Agent initialized")
+except Exception as e:
+    print(f"⚠️ News Agent initialization failed: {e}")
+    news_agent = None
 # ==========================================
 # PORTFOLIO STORAGE
 # ==========================================
@@ -747,3 +767,92 @@ async def get_total_industry_aum():
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))    
+@router.get("/news/market")
+async def get_market_news(
+    topic: str = Query("equity mutual funds", description="News topic"),
+    limit: int = Query(20, ge=5, le=50, description="Max articles")
+):
+    """
+    Get latest market news about mutual funds
+    
+    - **topic**: News topic (default: equity mutual funds)
+    - **limit**: Maximum number of articles (5-50)
+    """
+    try:
+        if not news_agent:
+            raise HTTPException(status_code=503, detail="News agent not available")
+        
+        result = news_agent.get_market_news(topic=topic, limit=limit)
+        
+        return {
+            "success": True,
+            "topic": topic,
+            "total_articles": result['total_articles'],
+            "articles": result['articles'],
+            "mode": result['mode']
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/news/analyze")
+async def analyze_market_news(
+    query: str = Query(..., description="Your question about markets")
+):
+    """
+    Get AI-analyzed market news
+    
+    - **query**: Your question (e.g., "What's happening in Indian equity markets?")
+    """
+    try:
+        if not news_agent:
+            raise HTTPException(status_code=503, detail="News agent not available")
+        
+        result = news_agent.get_analyzed_news(query=query)
+        
+        return {
+            "success": True,
+            "query": query,
+            "analysis": result.get('analysis', ''),
+            "articles": result['articles'],
+            "total_articles": result['total_articles'],
+            "mode": result['mode']
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/news/sources")
+async def get_news_sources():
+    """Get list of news sources being used"""
+    return {
+        "success": True,
+        "sources": [
+            {
+                "name": "NewsAPI",
+                "type": "API",
+                "status": "active" if os.getenv('NEWS_API_KEY') else "inactive"
+            },
+            {
+                "name": "Economic Times RSS",
+                "type": "RSS Feed",
+                "status": "active"
+            },
+            {
+                "name": "MoneyControl RSS",
+                "type": "RSS Feed",
+                "status": "active"
+            },
+            {
+                "name": "LiveMint RSS",
+                "type": "RSS Feed",
+                "status": "active"
+            }
+        ]
+    }

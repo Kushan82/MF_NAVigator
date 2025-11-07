@@ -1,0 +1,438 @@
+# ==========================================
+# MF_NAVigator - Comprehensive .gitignore
+# ==========================================
+
+# ==========================================
+# Python
+# ==========================================
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# Translations
+*.mo
+*.pot
+
+# Django stuff:
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Flask stuff:
+instance/
+.webassets-cache
+
+# Scrapy stuff:
+.scrapy
+
+# Sphinx documentation
+docs/_build/
+
+# PyBuilder
+.pybuilder/
+target/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+.python-version
+
+# pipenv
+Pipfile.lock
+
+# poetry
+poetry.lock
+
+# pdm
+.pdm.toml
+
+# PEP 582
+__pypackages__/
+
+# Celery stuff
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath parsed files
+*.sage.py
+
+# Environments
+.env
+.env.local
+.env.*.local
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# pytype static type analyzer
+.pytype/
+
+# Cython debug symbols
+cython_debug/
+
+# ==========================================
+# FastAPI / API specific
+# ==========================================
+
+# API logs
+*.log
+logs/
+*.log.*
+
+# Temporary API files
+temp/
+tmp/
+
+# ==========================================
+# Streamlit specific
+# ==========================================
+
+# Streamlit cache
+.streamlit/
+*.streamlit
+
+# ==========================================
+# Data & Cache Files
+# ==========================================
+
+# Data cache directories
+data/cache/
+data/temp/
+data/raw/
+data/processed/
+cache/
+*.cache
+
+# CSV files (except sample data)
+*.csv
+!data/sample/*.csv
+
+# Excel files
+*.xlsx
+*.xls
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Pickle files
+*.pkl
+*.pickle
+
+# Parquet files
+*.parquet
+
+# HDF5 files
+*.h5
+*.hdf5
+
+# ==========================================
+# Machine Learning Models
+# ==========================================
+
+# Model files
+models/*.pkl
+models/*.h5
+models/*.pt
+models/*.pth
+models/*.onnx
+models/*.pb
+models/saved_models/
+models/checkpoints/
+
+# XGBoost models
+*.model
+*.json
+
+# TensorFlow
+*.ckpt
+*.ckpt.*
+checkpoint
+
+# PyTorch
+*.pth
+*.pt
+
+# Scikit-learn
+*.joblib
+
+# Model outputs
+outputs/
+results/
+predictions/
+
+# ==========================================
+# LangChain & AI Agents
+# ==========================================
+
+# LangChain cache
+.langchain/
+langchain_cache/
+
+# Chroma DB
+chroma_db/
+.chroma/
+
+# Vector stores
+vector_store/
+faiss_index/
+
+# ==========================================
+# API Keys & Secrets
+# ==========================================
+
+# Environment files with secrets
+.env
+.env.local
+.env.production
+.env.staging
+*.env
+
+# API key files
+api_keys.txt
+secrets.json
+credentials.json
+
+# AWS credentials
+.aws/
+
+# Google Cloud credentials
+gcloud/
+*.json
+
+# ==========================================
+# IDEs & Editors
+# ==========================================
+
+# Visual Studio Code
+.vscode/
+*.code-workspace
+.history/
+
+# PyCharm
+.idea/
+*.iml
+*.iws
+.idea_modules/
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+.vim/
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+
+# Eclipse
+.project
+.pydevproject
+.settings/
+
+# NetBeans
+nbproject/
+
+# ==========================================
+# Operating System Files
+# ==========================================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# ==========================================
+# Project Specific
+# ==========================================
+
+# Portfolio storage (contains user data)
+backend/data/portfolios/*.json
+!backend/data/portfolios/.gitkeep
+
+# Saved predictions
+predictions/
+forecasts/
+
+# Reports
+reports/
+*.pdf
+!docs/*.pdf
+
+# Logs
+logs/
+*.log
+
+# Temporary files
+temp/
+tmp/
+*.tmp
+*.temp
+
+# Backup files
+*.bak
+*.backup
+*~
+
+# Compressed files
+*.zip
+*.tar.gz
+*.rar
+*.7z
+
+# ==========================================
+# Testing & Coverage
+# ==========================================
+
+# Test outputs
+test-results/
+test-reports/
+.coverage
+htmlcov/
+
+# ==========================================
+# Documentation
+# ==========================================
+
+# Compiled documentation
+docs/_build/
+docs/.doctrees/
+site/
+
+# ==========================================
+# Miscellaneous
+# ==========================================
+
+# Thumbnails
+*.thumb
+
+# Archives
+*.tar
+*.gz
+*.bz2
+*.xz
+
+# Compiled files
+*.com
+*.class
+*.dll
+*.exe
+*.o
+
+# Package files
+*.dmg
+*.iso
+*.jar
+*.war
+*.ear
+
+# ==========================================
+# Keep Essential Folders (But Empty)
+# ==========================================
+
+# These lines ensure directories exist but are empty
+!.gitkeep
+!**/.gitkeep

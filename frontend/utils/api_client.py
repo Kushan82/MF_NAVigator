@@ -432,3 +432,46 @@ class APIClient:
             if prediction:
                 results[code] = prediction
         return results
+    def get_market_news(
+        self,
+        topic: str = "equity mutual funds",
+        limit: int = 20
+    ) -> Optional[Dict]:
+        """
+        Get latest market news
+        
+        Args:
+            topic: News topic
+            limit: Max articles
+        
+        Returns:
+            News data dictionary
+        """
+        return self._make_request(
+            "GET",
+            f"{self.api_v1}/news/market",
+            params={"topic": topic, "limit": limit}
+        )
+
+    def analyze_market_news(self, query: str) -> Optional[Dict]:
+        """
+        Get AI-analyzed market news
+        
+        Args:
+            query: User question
+        
+        Returns:
+            Analysis dictionary
+        """
+        return self._make_request(
+            "POST",
+            f"{self.api_v1}/news/analyze",
+            params={"query": query}
+        )
+
+    def get_news_sources(self) -> Optional[Dict]:
+        """Get list of news sources"""
+        return self._make_request(
+            "GET",
+            f"{self.api_v1}/news/sources"
+        )
