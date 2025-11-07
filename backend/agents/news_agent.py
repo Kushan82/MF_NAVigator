@@ -5,12 +5,11 @@ Fetches, filters, and summarizes mutual fund market news
 
 import os
 from typing import List, Dict
-from langchain.agents import AgentExecutor, create_openai_functions_agent
-from langchain.tools import Tool
-from langchain_openai import ChatOpenAI
-from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain.schema import SystemMessage
 from dotenv import load_dotenv
+
+# ✅ FIXED IMPORTS - Removed problematic imports
+from langchain_core.tools import Tool 
+from langchain_openai import ChatOpenAI
 
 from .news_fetcher import NewsFetcher
 
@@ -63,42 +62,13 @@ class NewsAgent:
         if not self.llm:
             return None
         
-        tools = self._create_tools()
-        
-        # System prompt
-        system_message = SystemMessage(content="""
-        You are a financial news analyst specializing in Indian mutual funds and equity markets.
-        
-        Your role is to:
-        1. Fetch relevant news articles about mutual funds, equity markets, and investments
-        2. Filter out noise and focus on actionable insights
-        3. Summarize key market trends
-        4. Highlight important events affecting mutual fund investors
-        
-        Always provide sources and be factual. Focus on news from the last 7 days.
-        """)
-        
-        # Create prompt template
-        prompt = ChatPromptTemplate.from_messages([
-            system_message,
-            MessagesPlaceholder(variable_name="chat_history", optional=True),
-            ("human", "{input}"),
-            MessagesPlaceholder(variable_name="agent_scratchpad")
-        ])
-        
-        # Create agent
-        agent = create_openai_functions_agent(
-            llm=self.llm,
-            tools=tools,
-            prompt=prompt
-        )
-        
-        return AgentExecutor(
-            agent=agent,
-            tools=tools,
-            verbose=True,
-            max_iterations=3
-        )
+        # ✅ SIMPLIFIED - Just return LLM for simple text generation
+        try:
+            print("✅ News Agent ready")
+            return self.llm
+        except Exception as e:
+            print(f"⚠️ Agent setup failed: {e}")
+            return None
     
     def get_market_news(
         self,
@@ -143,15 +113,22 @@ class NewsAgent:
             return self.get_market_news()
         
         try:
-            # Run agent
-            result = self.agent.invoke({"input": query})
-            
-            # Also fetch raw articles
+            # ✅ FIXED - Simple LLM invocation instead of complex agent
             articles = self.news_fetcher.fetch_market_news(limit=15)
+            
+            # Generate analysis with LLM
+            if articles:
+                article_titles = "\n".join([f"- {a['title']}" for a in articles[:5]])
+                prompt = f"Summarize this financial news in 2-3 sentences:\n{article_titles}"
+                
+                response = self.agent.invoke(prompt)
+                analysis = response.content if hasattr(response, 'content') else str(response)
+            else:
+                analysis = "No articles found"
             
             return {
                 'success': True,
-                'analysis': result.get('output', ''),
+                'analysis': analysis,
                 'articles': articles,
                 'total_articles': len(articles),
                 'mode': 'ai_powered'

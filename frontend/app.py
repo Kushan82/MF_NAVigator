@@ -86,7 +86,8 @@ from frontend.pages import (
     portfolio_builder,
     nav_predictions,
     compare_schemes,
-    analytics_dashboard
+    analytics_dashboard,
+    market_news
 )
 
 # Load custom styling
@@ -102,7 +103,8 @@ PAGE_MAP = {
     "📈 Portfolio Builder": portfolio_builder,
     "🤖 NAV Predictions": nav_predictions,
     "⚖️ Compare Schemes": compare_schemes,
-    "📊 Analytics Dashboard": analytics_dashboard
+    "📊 Analytics Dashboard": analytics_dashboard,
+    "📰 Market News": market_news,
 }
 
 # Determine which page to show

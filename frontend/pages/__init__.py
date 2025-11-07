@@ -8,8 +8,8 @@ from frontend.pages import (
     portfolio_builder,
     nav_predictions,
     compare_schemes,
-    analytics_dashboard
-)
+    analytics_dashboard,
+    market_news)
 
 __all__ = [
     'home',
@@ -17,5 +17,6 @@ __all__ = [
     'portfolio_builder',
     'nav_predictions',
     'compare_schemes',
-    'analytics_dashboard'
+    'analytics_dashboard',
+    'market_news'
 ]

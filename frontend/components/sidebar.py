@@ -22,7 +22,8 @@ def render_sidebar():
                 "📈 Portfolio Builder",
                 "🤖 NAV Predictions",
                 "⚖️ Compare Schemes",
-                "📊 Analytics Dashboard"
+                "📊 Analytics Dashboard",
+                "📰 Market News"
             ],
             label_visibility="collapsed"
         )
