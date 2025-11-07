@@ -123,25 +123,37 @@ async def health_check():
 
 @router.get("/schemes/search")
 async def search_schemes(
-    query: str = Query(..., min_length=2),
-    limit: int = Query(50, ge=1, le=200),
-    force_refresh: bool = Query(False, description="Force refresh data from AMFI")
+    query: str = Query(..., min_length=2, description="Search query"),
+    limit: int = Query(50, ge=1, le=200, description="Max results")
 ):
-    # Fetch data with force_refresh option
-    df = data_fetcher.fetch_amfi_daily_nav(
-        save_to_cache=True, 
-        force_refresh=force_refresh
-    )
-    
+    """Search mutual fund schemes by name, AMC, or code"""
     try:
         # Fetch latest data
         df = data_fetcher.fetch_amfi_daily_nav(save_to_cache=False)
         
-        # Add categories
-        df = data_fetcher.get_scheme_categories(df)
+        if df is None or len(df) == 0:
+            raise HTTPException(status_code=503, detail="Unable to fetch data")
+        
+        # Add categories - WITH ERROR HANDLING
+        try:
+            if hasattr(data_fetcher, 'get_scheme_categories'):
+                df = data_fetcher.get_scheme_categories(df)
+            else:
+                # If method doesn't exist, assign default category
+                df['Category'] = 'Other'
+        except Exception as cat_error:
+            # If categorization fails, add a default category
+            print(f"⚠️ Category assignment failed: {cat_error}")
+            df['Category'] = 'Other'
         
         # Search
         results = data_fetcher.search_schemes(query, df)
+        
+        if results is None or len(results) == 0:
+            return {
+                "total_results": 0,
+                "schemes": []
+            }
         
         # Limit results
         results = results.head(limit)
@@ -149,24 +161,36 @@ async def search_schemes(
         # Format response
         schemes = []
         for _, row in results.iterrows():
-            schemes.append({
-                "scheme_code": str(row['Scheme_Code']),
-                "scheme_name": row['Scheme_Name'],
-                "amc": row['AMC'],
-                "category": row.get('Category'),
-                "current_nav": float(row['NAV']),
-                "nav_date": row['Date'].strftime('%Y-%m-%d'),
-                "isin_div": row.get('ISIN_Div'),
-                "isin_growth": row.get('ISIN_Growth')
-            })
+            try:
+                schemes.append({
+                    "scheme_code": str(row.get('Scheme_Code', '')),
+                    "scheme_name": row.get('Scheme_Name', ''),
+                    "amc": row.get('AMC', ''),
+                    "category": row.get('Category', 'Other'),
+                    "current_nav": float(row.get('NAV', 0)),
+                    "nav_date": row['Date'].strftime('%Y-%m-%d') if pd.notna(row.get('Date')) else '',
+                    "isin_div": row.get('ISIN_Div', ''),
+                    "isin_growth": row.get('ISIN_Growth', '')
+                })
+            except Exception as row_error:
+                # Skip malformed rows
+                print(f"⚠️ Skipping row: {row_error}")
+                continue
         
         return {
             "total_results": len(schemes),
             "schemes": schemes
         }
     
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        # Log the actual error
+        print(f"❌ Search error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
+
 
 
 @router.get("/schemes/{scheme_code}")

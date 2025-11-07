@@ -1,3 +1,7 @@
+"""
+Compare Schemes Page - Side-by-side comparison with advanced Plotly visualizations
+FIXED: No timeout when adding schemes
+"""
 
 import streamlit as st
 import pandas as pd
@@ -9,6 +13,7 @@ import numpy as np
 
 api = APIClient()
 
+
 def render():
     """Render compare schemes page with enhanced visualizations"""
     
@@ -16,8 +21,12 @@ def render():
     st.markdown("Side-by-side comparison with advanced analytics")
     st.markdown("---")
     
+    # Initialize compare list if doesn't exist
+    if 'compare_schemes_list' not in st.session_state:
+        st.session_state['compare_schemes_list'] = []
+    
     # Display current list
-    if st.session_state['compare_schemes_list']:
+    if len(st.session_state['compare_schemes_list']) > 0:
         render_comparison_interface()
     else:
         st.info("👆 No schemes added yet. Add schemes from Home page or search below.")
@@ -46,14 +55,19 @@ def render_add_scheme_interface():
         st.write("")
         search_btn = st.button("🔍 Search", key="compare_search_btn", use_container_width=True)
     
+    # Store search results in session state to prevent loss on rerun
     if search_btn and search_query and len(search_query) >= 2:
         with st.spinner("🔍 Searching..."):
             results = api.search_schemes(search_query, limit)
-            
-            if results and results['total_results'] > 0:
-                display_search_results_for_add(results)
+            if results and results.get('total_results', 0) > 0:
+                st.session_state['compare_search_results'] = results
+                st.rerun()
             else:
                 st.warning("No schemes found")
+    
+    # Display stored search results
+    if st.session_state.get('compare_search_results'):
+        display_search_results_for_add(st.session_state['compare_search_results'])
 
 
 def display_search_results_for_add(results: dict):
@@ -81,6 +95,7 @@ def display_search_results_for_add(results: dict):
     
     # Display info
     col1, col2, col3, col4 = st.columns(4)
+    
     with col1:
         st.metric("Code", selected_code)
     with col2:
@@ -90,20 +105,29 @@ def display_search_results_for_add(results: dict):
     with col4:
         st.metric("Date", selected_scheme['nav_date'])
     
-    # Add button
-    col1, col2 = st.columns(2)
+    # Add buttons
+    col1, col2, col3 = st.columns(3)
     
     with col1:
         if st.button("✅ Add to Comparison", use_container_width=True, type="primary", key="compare_add_btn"):
             if selected_code not in st.session_state['compare_schemes_list']:
                 st.session_state['compare_schemes_list'].append(selected_code)
                 st.success(f"✅ Added! Total: {len(st.session_state['compare_schemes_list'])}")
-                st.rerun()
+                # DON'T RERUN HERE - just show success
             else:
                 st.warning("Already in comparison list")
     
     with col2:
+        if st.button("🔄 Add & Search More", use_container_width=True, key="compare_add_continue"):
+            if selected_code not in st.session_state['compare_schemes_list']:
+                st.session_state['compare_schemes_list'].append(selected_code)
+            # Clear search to allow new search
+            st.session_state['compare_search_results'] = None
+            st.rerun()
+    
+    with col3:
         if st.button("❌ Cancel", use_container_width=True, key="compare_cancel_btn"):
+            st.session_state['compare_search_results'] = None
             st.rerun()
 
 
@@ -115,9 +139,9 @@ def render_comparison_interface():
     # Display current list with actions
     col1, col2, col3, col4, col5 = st.columns([2, 1, 1, 1, 1])
     col1.write("**Scheme Code**")
-    col2.write("**Action 1**")
-    col3.write("**Action 2**")
-    col4.write("**Action 3**")
+    col2.write("**View**")
+    col3.write("**Predict**")
+    col4.write("**Portfolio**")
     col5.write("**Remove**")
     
     st.markdown("---")
@@ -129,22 +153,23 @@ def render_comparison_interface():
             st.text(f"{i+1}. {code}")
         
         with col2:
-            if st.button("📊", key=f"comp_view_{i}", help="View Details"):
+            if st.button("📊", key=f"comp_view_{i}_{code}", help="View Details"):
                 st.session_state['selected_scheme_code'] = code
                 st.session_state['navigate_to'] = '📊 Scheme Analysis'
                 st.rerun()
         
         with col3:
-            if st.button("🤖", key=f"comp_predict_{i}", help="Predict"):
+            if st.button("🤖", key=f"comp_predict_{i}_{code}", help="Predict"):
                 st.session_state['selected_scheme_code'] = code
                 st.session_state['navigate_to'] = '🤖 NAV Predictions'
                 st.rerun()
         
         with col4:
-            st.write("")  # Placeholder
+            if st.button("💼", key=f"comp_port_{i}_{code}", help="Add to Portfolio"):
+                add_to_portfolio(code)
         
         with col5:
-            if st.button("🗑️", key=f"comp_remove_{i}", help="Remove"):
+            if st.button("🗑️", key=f"comp_remove_{i}_{code}", help="Remove"):
                 st.session_state['compare_schemes_list'].remove(code)
                 st.rerun()
     
@@ -169,11 +194,12 @@ def render_comparison_interface():
     with col3:
         if st.button("🗑️ Clear All", use_container_width=True, key="comp_clear_all"):
             st.session_state['compare_schemes_list'] = []
+            st.session_state['compare_search_results'] = None
             st.rerun()
     
     with col4:
         if st.button("📥 Export CSV", use_container_width=True, key="comp_export"):
-            st.info("Export feature coming soon!")
+            export_comparison_csv()
     
     # Show add form if requested
     if st.session_state.get('show_add_form'):
@@ -187,17 +213,54 @@ def render_comparison_interface():
         render_comparison_results()
 
 
+def add_to_portfolio(scheme_code: str):
+    """Add scheme to portfolio"""
+    if 'portfolio_schemes_list' not in st.session_state:
+        st.session_state['portfolio_schemes_list'] = []
+    
+    try:
+        scheme_info = api.get_scheme_details(scheme_code)
+        if scheme_info:
+            if not any(s['code'] == scheme_code for s in st.session_state['portfolio_schemes_list']):
+                st.session_state['portfolio_schemes_list'].append({
+                    'code': scheme_code,
+                    'name': scheme_info.get('scheme_name', scheme_code),
+                    'weight': 0.2
+                })
+                st.success(f"✅ Added to portfolio!")
+            else:
+                st.warning("Already in portfolio")
+    except:
+        st.error("Unable to add to portfolio")
+
+
+def export_comparison_csv():
+    """Export comparison list as CSV"""
+    df = pd.DataFrame({
+        'Scheme Code': st.session_state['compare_schemes_list']
+    })
+    csv = df.to_csv(index=False)
+    st.download_button(
+        label="📥 Download List",
+        data=csv,
+        file_name="comparison_list.csv",
+        mime="text/csv",
+        key="comp_download_list"
+    )
+
+
 def render_comparison_results():
     """Render enhanced comparison results with visualizations"""
     
     st.markdown("### 📊 Comparison Results & Analytics")
     
-    with st.spinner("📊 Comparing schemes..."):
+    with st.spinner("📊 Comparing schemes... This may take a minute."):
         try:
             data = api.compare_schemes(st.session_state['compare_schemes_list'])
             
             if not data or not data.get('schemes'):
                 st.error("❌ Unable to compare schemes")
+                st.session_state['run_comparison'] = False
                 return
             
             # Display results
@@ -209,7 +272,7 @@ def render_comparison_results():
             # Create tabs for different views
             tab1, tab2, tab3, tab4, tab5 = st.tabs([
                 "📋 Summary Table",
-                "📈 Returns Analysis", 
+                "📈 Returns Analysis",
                 "⚠️ Risk Analysis",
                 "🎯 Risk-Return Profile",
                 "📊 Radar Chart"
@@ -231,9 +294,10 @@ def render_comparison_results():
                 render_radar_chart(df_compare)
             
             st.session_state['run_comparison'] = False
-            
+        
         except Exception as e:
             st.error(f"❌ Error: {str(e)}")
+            st.session_state['run_comparison'] = False
 
 
 def render_summary_table(df: pd.DataFrame, data: dict):
@@ -287,7 +351,7 @@ def render_summary_table(df: pd.DataFrame, data: dict):
         data=csv,
         file_name="scheme_comparison.csv",
         mime="text/csv",
-        key="comp_download"
+        key="comp_download_results"
     )
 
 
@@ -298,7 +362,6 @@ def render_returns_analysis(df: pd.DataFrame):
     
     # 1. CAGR Comparison - Bar Chart
     fig1 = go.Figure()
-    
     cagr_data = df[df['cagr'] != 0].copy()
     
     if len(cagr_data) > 0:
@@ -366,24 +429,21 @@ def render_returns_analysis(df: pd.DataFrame):
     st.markdown("---")
     st.markdown("#### 🏅 Performance Ranking")
     
-    # Rank by different metrics
     col1, col2 = st.columns(2)
     
     with col1:
         cagr_ranked = df[df['cagr'] != 0].sort_values('cagr', ascending=False)
         if len(cagr_ranked) > 0:
             st.markdown("**By CAGR:**")
-            for i, row in cagr_ranked.iterrows():
-                rank = cagr_ranked.index.get_loc(i) + 1
-                st.write(f"{rank}. {row['scheme_code']}: {row['cagr']*100:.2f}%")
+            for i, (idx, row) in enumerate(cagr_ranked.iterrows(), 1):
+                st.write(f"{i}. {row['scheme_code']}: {row['cagr']*100:.2f}%")
     
     with col2:
         sharpe_ranked = df[df['sharpe_ratio'] != 0].sort_values('sharpe_ratio', ascending=False)
         if len(sharpe_ranked) > 0:
             st.markdown("**By Sharpe Ratio:**")
-            for i, row in sharpe_ranked.iterrows():
-                rank = sharpe_ranked.index.get_loc(i) + 1
-                st.write(f"{rank}. {row['scheme_code']}: {row['sharpe_ratio']:.3f}")
+            for i, (idx, row) in enumerate(sharpe_ranked.iterrows(), 1):
+                st.write(f"{i}. {row['scheme_code']}: {row['sharpe_ratio']:.3f}")
 
 
 def render_risk_analysis(df: pd.DataFrame):
@@ -445,7 +505,7 @@ def render_risk_analysis(df: pd.DataFrame):
     risk_metrics['var_95'] = risk_metrics['var_95'].abs()
     risk_metrics = risk_metrics.set_index('scheme_code')
     
-    # Normalize to 0-100 scale for better visualization
+    # Normalize to 0-100 scale
     normalized = (risk_metrics - risk_metrics.min()) / (risk_metrics.max() - risk_metrics.min()) * 100
     
     fig3 = go.Figure(data=go.Heatmap(
@@ -473,9 +533,9 @@ def render_risk_return_scatter(df: pd.DataFrame):
     st.markdown("#### 🎯 Risk-Return Profile")
     st.markdown("*Ideal schemes are in the top-left quadrant (high return, low risk)*")
     
-    # Filter data with valid values
+    # Filter data
     scatter_data = df[
-        (df['cagr'] != 0) & 
+        (df['cagr'] != 0) &
         (df['volatility'] != 0)
     ].copy()
     
@@ -502,7 +562,7 @@ def render_risk_return_scatter(df: pd.DataFrame):
         text=scatter_data['scheme_code'],
         textposition='top center',
         name='Schemes',
-        hovertemplate='<b>%{text}</b><br>Risk: %{x:.2f}%<br>Return: %{y:.2f}%<extra></extra>'
+        hovertemplate='%{text}<br>Risk: %{x:.2f}%<br>Return: %{y:.2f}%<extra></extra>'
     ))
     
     # Add quadrant lines
@@ -511,18 +571,6 @@ def render_risk_return_scatter(df: pd.DataFrame):
     
     fig.add_hline(y=avg_return, line_dash="dash", line_color="gray", annotation_text="Avg Return")
     fig.add_vline(x=avg_risk, line_dash="dash", line_color="gray", annotation_text="Avg Risk")
-    
-    # Add efficient frontier approximation
-    sorted_data = scatter_data.sort_values('volatility')
-    fig.add_trace(go.Scatter(
-        x=sorted_data['volatility'] * 100,
-        y=sorted_data['cagr'] * 100,
-        mode='lines',
-        line=dict(color='lightblue', width=1, dash='dot'),
-        name='Trend',
-        showlegend=False,
-        hoverinfo='skip'
-    ))
     
     fig.update_layout(
         title="Risk vs Return Analysis",
@@ -565,7 +613,7 @@ def render_radar_chart(df: pd.DataFrame):
     st.markdown("#### 📊 Multi-Dimensional Radar Chart")
     st.markdown("*Compare schemes across multiple metrics simultaneously*")
     
-    # Prepare data - normalize all metrics to 0-100 scale
+    # Prepare data
     metrics_to_plot = ['cagr', 'sharpe_ratio', 'volatility', 'max_drawdown', 'sortino_ratio']
     available_metrics = [m for m in metrics_to_plot if m in df.columns]
     
@@ -588,7 +636,7 @@ def render_radar_chart(df: pd.DataFrame):
                 col_max = df[metric].max()
                 
                 if col_max != col_min:
-                    # Invert for risk metrics (lower is better)
+                    # Invert for risk metrics
                     if metric in ['volatility', 'max_drawdown']:
                         normalized = 100 - ((val - col_min) / (col_max - col_min) * 100)
                     else:
@@ -625,7 +673,7 @@ def render_radar_chart(df: pd.DataFrame):
     
     # Legend
     st.info("""
-    **Note:** All metrics are normalized to 0-100 scale. 
+    **Note:** All metrics are normalized to 0-100 scale.
     - Risk metrics (volatility, drawdown) are inverted (lower risk = higher score)
     - Larger area = Better overall performance
     """)

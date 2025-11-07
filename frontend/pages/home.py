@@ -1,139 +1,32 @@
 """
-Home Page - Landing page with accurate real-time data
-Complete version with advanced search, filters, and real metrics
+Home page - Search and overview with scheme selection
 """
 
 import streamlit as st
 import pandas as pd
-import plotly.graph_objects as go
 from frontend.utils.api_client import APIClient
 
 api = APIClient()
 
 
 def render():
-    """Render home page with ACCURATE data"""
+    """Render home page"""
     
     # Hero section
     st.markdown('<div style="text-align: center; padding: 20px;"><h1>🚀 MF_NAVigator</h1></div>', unsafe_allow_html=True)
-    st.markdown('<div style="text-align: center; color: #666; padding-bottom: 20px;"><h3>AI-Powered Mutual Fund Analytics & NAV Prediction Platform</h3></div>', unsafe_allow_html=True)
+    st.markdown('<div style="text-align: center; color: #666;"><h3>Mutual Fund Analytics & NAV Prediction Platform</h3></div>', unsafe_allow_html=True)
     
     st.markdown("---")
     
-    # Display REAL metrics (not hardcoded)
-    display_hero_metrics()
+    # Quick stats
+    display_quick_stats()
     
     st.markdown("---")
     
     # Search section
-    render_search_section()
-    
-    st.markdown("---")
-    
-    # Top AMCs with accurate data
-    display_top_amcs_accurate()
-    
-    st.markdown("---")
-    
-    # Category distribution
-    display_category_distribution()
-    
-    st.markdown("---")
-    
-    # Data source info
-    display_data_freshness_indicator()
-    
-    st.markdown("---")
-    
-    # Platform features
-    render_platform_features()
-    
-    # Footer
-    render_footer()
-
-
-# ==========================================
-# METRICS SECTION (ACCURATE DATA)
-# ==========================================
-
-def display_hero_metrics():
-    """Display hero metrics with REAL data (not hardcoded)"""
-    
-    st.markdown("### 📊 Platform Statistics")
-    
-    # Fetch real data
-    with st.spinner("📊 Loading real-time metrics..."):
-        try:
-            # Get scheme data from API
-            sample_search = api.search_schemes("Fund", limit=200)
-            
-            if sample_search and sample_search.get('schemes'):
-                schemes_data = sample_search['schemes']
-                
-                # Calculate REAL metrics
-                total_schemes = len(schemes_data)
-                unique_amcs = len(set([s.get('amc') for s in schemes_data if s.get('amc')]))
-                unique_categories = len(set([s.get('category') for s in schemes_data if s.get('category')]))
-                
-                # Get latest date
-                dates = [s.get('nav_date') for s in schemes_data if s.get('nav_date')]
-                last_updated = max(dates) if dates else "N/A"
-                
-            else:
-                # Conservative estimates
-                total_schemes = "9,000"
-                unique_amcs = "44"
-                unique_categories = "3"
-                last_updated = "Daily"
-        
-        except Exception as e:
-            st.warning(f"Using approximate metrics: {str(e)}")
-            total_schemes = "9,000"
-            unique_amcs = "44"
-            unique_categories = "3"
-            last_updated = "Daily"
-    
-    # Display metrics
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        st.metric(
-            "📈 Total Schemes",
-            f"{total_schemes}+",
-            help="Total mutual fund schemes tracked"
-        )
-    
-    with col2:
-        st.metric(
-            "🏢 Fund Houses",
-            f"{unique_amcs}+",
-            help="Number of Asset Management Companies"
-        )
-    
-    with col3:
-        st.metric(
-            "📂 Categories",
-            f"{unique_categories}",
-            help="Debt, Hybrid, Other (Equity)"
-        )
-    
-    with col4:
-        st.metric(
-            "🔄 Updated",
-            str(last_updated),
-            help="Latest NAV data date"
-        )
-
-
-# ==========================================
-# SEARCH SECTION
-# ==========================================
-
-def render_search_section():
-    """Render search section with tabs"""
-    
     st.markdown("### 🔍 Search Mutual Funds")
     
+    # Tabs for search methods
     tab1, tab2 = st.tabs(["🔍 Quick Search", "🎯 Advanced Filters"])
     
     with tab1:
@@ -141,6 +34,29 @@ def render_search_section():
     
     with tab2:
         render_advanced_filters()
+    
+    st.markdown("---")
+    
+    # Footer
+    render_footer()
+
+
+def display_quick_stats():
+    """Display quick statistics"""
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("📊 Total Schemes", "9,000+")
+    
+    with col2:
+        st.metric("🏢 AMCs", "44+")
+    
+    with col3:
+        st.metric("🔄 Data Updated", "Daily")
+    
+    with col4:
+        st.metric("💡 AI Powered", "Yes")
 
 
 def render_quick_search():
@@ -162,7 +78,7 @@ def render_quick_search():
         with st.spinner("🔍 Searching..."):
             results = api.search_schemes(search_query, limit)
             
-            if results and results['total_results'] > 0:
+            if results and results.get('total_results', 0) > 0:
                 display_search_results(results)
             else:
                 st.warning("❌ No schemes found")
@@ -186,11 +102,7 @@ def render_advanced_filters():
         amcs = [
             'All', 'HDFC', 'SBI', 'ICICI Prudential', 'Axis', 'Kotak',
             'Aditya Birla Sun Life', 'UTI', 'Nippon India', 'DSP',
-            'Franklin Templeton', 'Mirae Asset', 'Tata', 'HSBC', 'L&T',
-            'Invesco', 'Sundaram', 'BOI', 'Baroda BNP Paribas',
-            'Canara Robeco', 'Edelweiss', 'IDBI', 'IDFC', 'JM Financial',
-            'LIC', 'Mahindra Manulife', 'Motilal Oswal', 'Parag Parikh',
-            'PGIM India', 'Quantum', 'Quant', 'Shriram', 'Union'
+            'Franklin Templeton', 'Mirae Asset', 'Tata', 'HSBC', 'L&T'
         ]
         
         selected_amc = st.selectbox(
@@ -244,7 +156,7 @@ def apply_filters(category: str, amc: str, limit: int):
             fetch_limit = min(limit * 3, 200)
             results = api.search_schemes(search_query, limit=fetch_limit)
             
-            if not results or results['total_results'] == 0:
+            if not results or results.get('total_results', 0) == 0:
                 st.warning(f"❌ No schemes found")
                 return
             
@@ -287,7 +199,7 @@ def apply_filters(category: str, amc: str, limit: int):
 def display_search_results(results: dict):
     """Display search results with table and card views"""
     
-    schemes_list = results['schemes']
+    schemes_list = results.get('schemes', [])
     
     if not schemes_list:
         st.warning("No schemes to display")
@@ -327,7 +239,7 @@ def render_table_view(schemes_list: list):
     st.dataframe(df, use_container_width=True, hide_index=True)
     
     st.markdown("---")
-    st.markdown("#### 🎯 Select a Scheme for Analysis")
+    st.markdown("#### 🎯 Select a Scheme")
     
     selected_idx = st.selectbox(
         "Choose scheme:",
@@ -469,239 +381,15 @@ def add_to_portfolio(scheme: dict):
         st.warning("Already in portfolio")
 
 
-# ==========================================
-# TOP AMCs SECTION (ACCURATE DATA)
-# ==========================================
-
-def display_top_amcs_accurate():
-    """Display top AMCs with ACCURATE data"""
-    
-    st.markdown("### 🏢 Top Fund Houses")
-    
-    col1, col2 = st.columns([3, 1])
-    
-    with col2:
-        metric_type = st.selectbox(
-            "Rank by:",
-            options=["Scheme Count", "AUM (Estimated)"],
-            key="home_amc_ranking"
-        )
-    
-    with st.spinner("Loading data..."):
-        try:
-            search_results = api.search_schemes("Fund", limit=200)
-            
-            if not search_results or not search_results.get('schemes'):
-                st.warning("Unable to load data")
-                return
-            
-            df = pd.DataFrame(search_results['schemes'])
-            
-            if metric_type == "Scheme Count":
-                # Count schemes per AMC
-                amc_counts = df['amc'].value_counts().head(10)
-                
-                fig = go.Figure(data=[
-                    go.Bar(
-                        y=amc_counts.index,
-                        x=amc_counts.values,
-                        orientation='h',
-                        marker_color='#1f77b4'
-                    )
-                ])
-                
-                fig.update_layout(
-                    title="Top 10 AMCs by Number of Schemes",
-                    xaxis_title="Number of Schemes",
-                    yaxis_title="AMC",
-                    height=500,
-                    yaxis={'categoryorder': 'total ascending'}
-                )
-                
-                st.plotly_chart(fig, use_container_width=True)
-                st.info("📌 **Note:** Ranked by number of schemes, not total AUM.")
-            
-            else:
-                # Try to fetch AUM data
-                try:
-                    aum_url = "https://raw.githubusercontent.com/InertExpert2911/Mutual_Fund_Data/main/mutual_fund_data.csv"
-                    aum_df = pd.read_csv(aum_url)
-                    
-                    aum_df['aum'] = pd.to_numeric(aum_df['aum'], errors='coerce')
-                    aum_df = aum_df.dropna(subset=['aum'])
-                    
-                    top_amc_aum = aum_df.groupby('amc')['aum'].sum().sort_values(ascending=False).head(10)
-                    top_amc_aum = top_amc_aum / 100  # Convert to crores
-                    
-                    fig = go.Figure(data=[
-                        go.Bar(
-                            y=top_amc_aum.index,
-                            x=top_amc_aum.values,
-                            orientation='h',
-                            marker_color='#2ca02c',
-                            text=[f"₹{val:,.0f} Cr" for val in top_amc_aum.values],
-                            textposition='outside'
-                        )
-                    ])
-                    
-                    fig.update_layout(
-                        title="Top 10 AMCs by AUM (Assets Under Management)",
-                        xaxis_title="AUM (₹ Crores)",
-                        yaxis_title="AMC",
-                        height=500,
-                        yaxis={'categoryorder': 'total ascending'}
-                    )
-                    
-                    st.plotly_chart(fig, use_container_width=True)
-                    st.info("📌 **Note:** AUM data updated weekly. May not reflect real-time values.")
-                
-                except Exception as e:
-                    st.error(f"Unable to fetch AUM data")
-                    st.info("💡 Showing scheme count instead")
-        
-        except Exception as e:
-            st.error(f"Error: {str(e)}")
-
-
-# ==========================================
-# CATEGORY DISTRIBUTION
-# ==========================================
-
-def display_category_distribution():
-    """Display category distribution"""
-    
-    st.markdown("### 📈 Category Distribution")
-    
-    with st.spinner("Loading category data..."):
-        try:
-            search_results = api.search_schemes("Fund", limit=200)
-            
-            if not search_results or not search_results.get('schemes'):
-                st.warning("Unable to load data")
-                return
-            
-            df = pd.DataFrame(search_results['schemes'])
-            category_counts = df['category'].value_counts()
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                fig = go.Figure(data=[
-                    go.Pie(
-                        labels=category_counts.index,
-                        values=category_counts.values,
-                        hole=0.4,
-                        marker_colors=['#ff7f0e', '#2ca02c', '#1f77b4']
-                    )
-                ])
-                
-                fig.update_layout(title="Schemes by Category", height=400)
-                st.plotly_chart(fig, use_container_width=True)
-            
-            with col2:
-                category_df = pd.DataFrame({
-                    'Category': category_counts.index,
-                    'Count': category_counts.values,
-                    'Percentage': [f"{(v/category_counts.sum())*100:.1f}%" for v in category_counts.values]
-                })
-                
-                st.dataframe(category_df, use_container_width=True, hide_index=True)
-        
-        except Exception as e:
-            st.error(f"Error: {str(e)}")
-
-
-# ==========================================
-# DATA FRESHNESS INDICATOR
-# ==========================================
-
-def display_data_freshness_indicator():
-    """Show data sources and accuracy info"""
-    
-    with st.expander("ℹ️ Data Sources & Accuracy"):
-        st.markdown("""
-        **Data Sources:**
-        - **NAV Data:** AMFI (Association of Mutual Funds India) - Updated Daily ✅
-        - **Historical NAV:** MFapi.in - Real-time ✅
-        - **AUM Data:** External dataset - Updated Weekly ⚠️
-        - **Scheme Info:** AMFI & MFapi.in - Real-time ✅
-        
-        **Accuracy Notes:**
-        - ✅ NAV values are 100% accurate (official source)
-        - ✅ Scheme counts are real-time
-        - ⚠️ AUM data is estimated (updated weekly)
-        - ❌ Expense ratios not available via API
-        
-        **What's Real-Time:**
-        - Current NAV values
-        - Scheme names and codes
-        - AMC (fund house) names
-        - Historical NAV data
-        
-        **What's NOT Real-Time:**
-        - AUM (Assets Under Management) - Weekly updates
-        - Portfolio holdings - Not available
-        - Expense ratios - Not available
-        - Fund manager details - Not available
-        
-        **Data Update Frequency:**
-        - NAV: Daily (by 9 PM IST)
-        - Schemes: Real-time
-        - AUM: Weekly (Mondays)
-        """)
-
-
-# ==========================================
-# PLATFORM FEATURES
-# ==========================================
-
-def render_platform_features():
-    """Render platform features section"""
-    
-    st.markdown("### ✨ Platform Features")
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        st.markdown("""
-        **🔍 Smart Search**
-        - Search 9,000+ schemes
-        - Filter by category & AMC
-        - Real-time NAV data
-        - Advanced filtering
-        """)
-    
-    with col2:
-        st.markdown("""
-        **📊 Deep Analytics**
-        - Financial metrics (CAGR, Sharpe)
-        - Risk analysis (VaR, Drawdown)
-        - Portfolio optimization
-        - Scheme comparison
-        """)
-    
-    with col3:
-        st.markdown("""
-        **🤖 AI Predictions**
-        - XGBoost ML models
-        - 7-90 day forecasts
-        - Confidence scoring
-        - Sequential predictions
-        """)
-
-
-# ==========================================
-# FOOTER
-# ==========================================
-
 def render_footer():
     """Render footer"""
     
     st.markdown("---")
     st.markdown("""
     <div style='text-align: center; color: #666; padding: 20px;'>
-        <p><strong>MF_NAVigator v1.0</strong> | Data from AMFI & MFapi.in | For educational purposes only</p>
-        <p>⚠️ <strong>Disclaimer:</strong> Not financial advice. Past performance doesn't guarantee future results.</p>
-        <p>💡 <strong>Tip:</strong> Always consult a financial advisor before making investment decisions.</p>
+        <p><strong>🚀 Built with ❤️ using Python, FastAPI, XGBoost, and Streamlit</strong></p>
+        <p>📊 Data sources: AMFI India & MFapi.in</p>
+        <p>📈 Compare, Analyze, Predict - All Mutual Funds in One Place</p>
+        <p style='font-size: 0.9em;'>⚠️ Disclaimer: For educational purposes only. Not financial advice.</p>
     </div>
     """, unsafe_allow_html=True)
