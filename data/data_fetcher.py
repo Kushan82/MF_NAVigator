@@ -225,6 +225,57 @@ def get_aum_data():
         logging.error(f"Error processing AUM table: {e}")
         return pd.DataFrame()
 
+# --- Part 3: Fetching Historical NAV (FIX: ADDING THIS FUNCTION) ---
+
+@pd.api.extensions.register_dataframe_accessor("cache")
+class CachingAccessor:
+    def __init__(self, pandas_obj):
+        self._obj = pandas_obj
+    
+    # You can add caching logic here if needed, for now just a placeholder
+    def load(self, *args, **kwargs):
+        pass
+
+def get_nav_history(scheme_code: str) -> pd.DataFrame:
+    """
+    Fetches the complete NAV history for a single scheme from mfapi.in.
+    This is required by the backend routes.
+    """
+    logging.info(f"Fetching NAV history for {scheme_code}...")
+    try:
+        # Use the correct MFAPI_URL defined at the top
+        response = requests.get(MFAPI_URL.format(scheme_code), timeout=10)
+        response.raise_for_status()
+        
+        data = response.json()
+        nav_history = data.get('data')
+        
+        if not nav_history:
+            logging.warning(f"No 'data' block found for scheme {scheme_code}")
+            return pd.DataFrame()
+
+        # Convert list of dicts to DataFrame
+        history_df = pd.DataFrame(nav_history)
+        
+        # Clean and format the data
+        history_df['date'] = pd.to_datetime(history_df['date'], format='%d-%m-%Y')
+        history_df['nav'] = pd.to_numeric(history_df['nav'], errors='coerce')
+        
+        # Sort by date
+        history_df = history_df.sort_values(by='date').reset_index(drop=True)
+        
+        logging.info(f"Successfully fetched {len(history_df)} history records for {scheme_code}.")
+        return history_df
+
+    except requests.RequestException as e:
+        logging.error(f"Error fetching NAV history for {scheme_code}: {e}")
+        return pd.DataFrame()
+    except Exception as e:
+        logging.error(f"Error processing NAV history for {scheme_code}: {e}")
+        return pd.DataFrame()
+# --- END FIX ---
+
+
 # --- Main execution ---
 
 if __name__ == "__main__":
@@ -255,3 +306,13 @@ if __name__ == "__main__":
         # Save to cache for inspection
         aum_data.to_csv("cache/latest_aum_data.csv", index=False)
         logging.info("Saved latest_aum_data.csv to cache/")
+
+    # Test 3: Get NAV History
+    logging.info("\n--- Running NAV History Fetcher (Test) ---")
+    start_time = time.time()
+    # Test with a known scheme (e.g., an SBI fund)
+    history_data = get_nav_history("120503") 
+    logging.info(f"NAV history fetch took {time.time() - start_time:.2f} seconds.")
+    if not history_data.empty:
+        print(history_data.head())
+        print(history_data.tail())
