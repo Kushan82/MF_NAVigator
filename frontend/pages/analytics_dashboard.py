@@ -92,7 +92,7 @@ def export_powerbi_data():
             import sys
             sys.path.append(str(Path(__file__).parent.parent.parent))
             
-            from models.powerbi_exporter import PowerBIDataExporter
+            from models.export_for_powerbi import PowerBIDataExporter
             
             exporter = PowerBIDataExporter()
             exported_files = exporter.export_all_datasets()
