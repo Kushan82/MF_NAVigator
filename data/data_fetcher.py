@@ -1,7 +1,6 @@
 """
-DATA FETCHER - FIXED & OPTIMIZED VERSION
-Fetches and caches mutual fund data from AMFI and mfapi.in
-Fixes: Empty result issue, slow API calls, caching
+DATA FETCHER - FULLY FIXED VERSION
+Consistent column naming and proper data normalization
 """
 
 import pandas as pd
@@ -28,15 +27,27 @@ AMFI_NAV_URL = "https://www.amfiindia.com/spages/NAVAll.txt"
 MFAPI_URL = "https://api.mfapi.in/mf/{}"
 
 # ==========================================
+# STANDARDIZED COLUMN NAMES (CONSISTENT!)
+# ==========================================
+STANDARD_COLUMNS = {
+    'scheme_code': 'Scheme Code',
+    'scheme_name': 'Scheme Name',
+    'nav': 'NAV',
+    'date': 'Date',
+    'amc': 'AMC',
+    'category': 'Scheme Category',
+    'scheme_type': 'Scheme Type',
+    'isin_div': 'ISIN Div Payout',
+    'isin_growth': 'ISIN Div Reinvestment'
+}
+
+# ==========================================
 # PART 1: FETCH LATEST NAVs (FIXED)
 # ==========================================
 
 def get_latest_navs():
     """
-    ✅ FIXED: Fetches latest NAVs from AMFI
-    - Proper error handling
-    - Validates data
-    - Returns non-empty DataFrame
+    ✅ FIXED: Fetches latest NAVs from AMFI with STANDARDIZED column names
     """
     logger.info("📡 Fetching latest NAVs from AMFI...")
     
@@ -44,11 +55,10 @@ def get_latest_navs():
         response = requests.get(AMFI_NAV_URL, timeout=15)
         response.raise_for_status()
         
-        # Split into lines
         lines = response.text.split('\n')
         logger.info(f"   Retrieved {len(lines)} lines from AMFI")
         
-        # Find data start (lines with semicolons)
+        # Find data lines
         data_lines = [line for line in lines if line.strip() and line.count(';') >= 5]
         
         if not data_lines:
@@ -94,9 +104,14 @@ def get_latest_navs():
         # Extract AMC from scheme name
         df['AMC'] = df['Scheme Name'].str.split().str[0]
         
-        # Add category (default to 'Other')
+        # Add default categories
         df['Scheme Category'] = 'Other'
         df['Scheme Type'] = 'Other'
+        
+        # Ensure all columns are strings where needed
+        df['Scheme Code'] = df['Scheme Code'].astype(str)
+        df['Scheme Name'] = df['Scheme Name'].astype(str)
+        df['AMC'] = df['AMC'].astype(str)
         
         logger.info(f"✅ Successfully fetched {len(df)} NAV records from AMFI")
         logger.info(f"   - Unique schemes: {df['Scheme Code'].nunique()}")
@@ -115,7 +130,6 @@ def get_latest_navs():
 def get_scheme_details_cached(scheme_code: str, cache_dict={}):
     """
     ✅ OPTIMIZED: Fetch details with in-memory caching
-    Reduces API calls significantly
     """
     if scheme_code in cache_dict:
         return cache_dict[scheme_code]
@@ -145,10 +159,8 @@ def get_scheme_details_cached(scheme_code: str, cache_dict={}):
 def get_all_scheme_details(scheme_codes, sample_only=True):
     """
     ✅ OPTIMIZED: Only fetch details for sample of schemes
-    Reduces time from hours to minutes
     """
     if sample_only:
-        # Only fetch for first 500 unique schemes
         scheme_codes = list(scheme_codes)[:500]
     
     logger.info(f"📡 Fetching details for {len(scheme_codes)} schemes (parallel)...")
@@ -180,10 +192,7 @@ def get_all_scheme_details(scheme_codes, sample_only=True):
 
 def get_enhanced_nav_data():
     """
-    ✅ FIXED: Returns merged NAV + category data
-    - Much faster (caches API calls)
-    - Actually returns data (non-empty)
-    - Properly handles merges
+    ✅ FIXED: Returns merged NAV + category data with CONSISTENT columns
     """
     logger.info("📊 Building enhanced NAV dataset...")
     
@@ -200,23 +209,48 @@ def get_enhanced_nav_data():
     
     # Step 3: Merge if we got details
     if not details_df.empty:
-        enhanced_df = pd.merge(nav_df, details_df, on='Scheme Code', how='left')
+        # Merge on Scheme Code
+        enhanced_df = pd.merge(
+            nav_df, 
+            details_df, 
+            on='Scheme Code', 
+            how='left',
+            suffixes=('', '_detail')
+        )
         
         # Use Fund House if available, otherwise use parsed AMC
-        enhanced_df['AMC'] = enhanced_df['Fund House'].fillna(enhanced_df['AMC'])
-        enhanced_df = enhanced_df.drop(columns=['Fund House'], errors='ignore')
+        if 'Fund House' in enhanced_df.columns:
+            enhanced_df['AMC'] = enhanced_df['Fund House'].fillna(enhanced_df['AMC'])
+            enhanced_df = enhanced_df.drop(columns=['Fund House'], errors='ignore')
         
         # Fill missing categories with defaults
-        enhanced_df['Scheme Category'] = enhanced_df['Scheme Category_y'].fillna(
-            enhanced_df['Scheme Category_x']).fillna('Other')
-        enhanced_df['Scheme Type'] = enhanced_df['Scheme Type_y'].fillna(
-            enhanced_df['Scheme Type_x']).fillna('Other')
+        if 'Scheme Category_detail' in enhanced_df.columns:
+            enhanced_df['Scheme Category'] = enhanced_df['Scheme Category_detail'].fillna(
+                enhanced_df['Scheme Category'])
+            enhanced_df = enhanced_df.drop(columns=['Scheme Category_detail'], errors='ignore')
         
-        # Clean up duplicate columns
-        cols_to_drop = [col for col in enhanced_df.columns if col.endswith('_x') or col.endswith('_y')]
-        enhanced_df = enhanced_df.drop(columns=cols_to_drop, errors='ignore')
+        if 'Scheme Type_detail' in enhanced_df.columns:
+            enhanced_df['Scheme Type'] = enhanced_df['Scheme Type_detail'].fillna(
+                enhanced_df['Scheme Type'])
+            enhanced_df = enhanced_df.drop(columns=['Scheme Type_detail'], errors='ignore')
     else:
         enhanced_df = nav_df
+    
+    # ✅ CRITICAL FIX: Ensure consistent column order and types
+    final_columns = [
+        'Scheme Code', 'Scheme Name', 'NAV', 'Date', 'AMC',
+        'Scheme Category', 'Scheme Type', 
+        'ISIN Div Payout', 'ISIN Div Reinvestment'
+    ]
+    
+    # Keep only columns that exist
+    enhanced_df = enhanced_df[[col for col in final_columns if col in enhanced_df.columns]]
+    
+    # Ensure proper data types
+    enhanced_df['Scheme Code'] = enhanced_df['Scheme Code'].astype(str)
+    enhanced_df['Scheme Name'] = enhanced_df['Scheme Name'].astype(str)
+    enhanced_df['NAV'] = pd.to_numeric(enhanced_df['NAV'], errors='coerce')
+    enhanced_df['AMC'] = enhanced_df['AMC'].astype(str)
     
     logger.info(f"✅ Enhanced NAV dataset ready: {len(enhanced_df)} records")
     logger.info(f"   Columns: {list(enhanced_df.columns)}")
@@ -230,6 +264,7 @@ def get_enhanced_nav_data():
 def get_nav_history(scheme_code: str):
     """
     ✅ OPTIMIZED: Fetch NAV history for a specific scheme
+    Returns DataFrame with standardized columns: ['Date', 'NAV']
     """
     logger.info(f"📈 Fetching NAV history for {scheme_code}...")
     
@@ -273,7 +308,33 @@ def get_nav_history(scheme_code: str):
         return pd.DataFrame()
 
 # ==========================================
-# PART 5: DEBUG & TEST FUNCTIONS
+# PART 5: GET AUM DATA
+# ==========================================
+
+def get_aum_data():
+    """
+    Fetch AUM data from GitHub or generate placeholder
+    """
+    logger.info("💰 Fetching AUM data...")
+    
+    try:
+        # Try to fetch from GitHub
+        url = "https://raw.githubusercontent.com/InertExpert2911/Mutual_Fund_Data/main/aum_data.csv"
+        response = requests.get(url, timeout=10)
+        
+        if response.status_code == 200:
+            aum_df = pd.read_csv(StringIO(response.text))
+            logger.info(f"✅ Fetched {len(aum_df)} AUM records")
+            return aum_df
+    except Exception as e:
+        logger.warning(f"⚠️ Could not fetch AUM data: {e}")
+    
+    # Return empty DataFrame if fetch fails
+    logger.info("⚠️ Returning empty AUM data")
+    return pd.DataFrame()
+
+# ==========================================
+# DEBUG & TEST FUNCTIONS
 # ==========================================
 
 def test_data_fetcher():
@@ -287,6 +348,7 @@ def test_data_fetcher():
     nav_df = get_latest_navs()
     print(f"   Result: {len(nav_df)} records")
     if not nav_df.empty:
+        print(f"   Columns: {list(nav_df.columns)}")
         print(f"   Sample:\n{nav_df.head(3)}\n")
     
     # Test 2: Get enhanced data
@@ -302,7 +364,18 @@ def test_data_fetcher():
     history_df = get_nav_history("120503")
     print(f"   Result: {len(history_df)} records")
     if not history_df.empty:
+        print(f"   Columns: {list(history_df.columns)}")
         print(f"   Sample:\n{history_df.head(3)}\n")
+    
+    # Test 4: Search functionality
+    print("TEST 4: Testing search for 'SBI CONTRA'...")
+    if not enhanced_df.empty:
+        search_results = enhanced_df[
+            enhanced_df['Scheme Name'].str.contains('SBI CONTRA', case=False, na=False)
+        ]
+        print(f"   Found: {len(search_results)} schemes")
+        if not search_results.empty:
+            print(f"   Sample:\n{search_results[['Scheme Code', 'Scheme Name', 'NAV']].head()}\n")
     
     print("=" * 70)
     print("✅ DATA FETCHER TESTS COMPLETE")

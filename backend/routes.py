@@ -127,22 +127,55 @@ _cache_timestamp = None
 CACHE_DURATION = 3600  # 1 hour
 
 def get_cached_nav_data(force_refresh=False):
-    """Get cached NAV data or fetch fresh"""
+    """Get cached NAV data or fetch fresh - FIXED VERSION"""
     global _nav_cache, _cache_timestamp
     import time
     
     now = time.time()
-    if _nav_cache is None or force_refresh or (now - (_cache_timestamp or 0) > CACHE_DURATION):
-        logger.info("📡 Fetching NAV data...")
+    cache_expired = (now - (_cache_timestamp or 0) > CACHE_DURATION)
+    
+    # Fetch if: no cache, cache expired, force refresh, or cache is empty
+    should_fetch = (
+        _nav_cache is None or 
+        force_refresh or 
+        cache_expired or 
+        (_nav_cache is not None and _nav_cache.empty)
+    )
+    
+    if should_fetch:
+        logger.info("📡 Fetching NAV data from AMFI...")
         try:
-            _nav_cache = get_enhanced_nav_data()
-            _cache_timestamp = now
-            if _nav_cache is not None and not _nav_cache.empty:
+            new_data = get_enhanced_nav_data()
+            
+            # Only update cache if we got valid data
+            if new_data is not None and not new_data.empty:
+                _nav_cache = new_data
+                _cache_timestamp = now
                 logger.info(f"✅ Loaded {len(_nav_cache)} schemes")
-            return _nav_cache
+                return _nav_cache
+            else:
+                logger.error("❌ Fetched data is empty!")
+                # Return old cache if available, otherwise empty DataFrame
+                if _nav_cache is not None and not _nav_cache.empty:
+                    logger.warning("⚠️ Using stale cache data")
+                    return _nav_cache
+                else:
+                    logger.error("❌ No cache available, returning empty")
+                    return pd.DataFrame()
+                    
         except Exception as e:
-            logger.error(f"❌ Error: {e}")
-            return _nav_cache if _nav_cache is not None else pd.DataFrame()
+            logger.error(f"❌ Error fetching data: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            
+            # Return old cache if available
+            if _nav_cache is not None and not _nav_cache.empty:
+                logger.warning("⚠️ Using stale cache due to error")
+                return _nav_cache
+            else:
+                return pd.DataFrame()
+    
+    # Return existing cache
     return _nav_cache if _nav_cache is not None else pd.DataFrame()
 
 # ==========================================
@@ -176,35 +209,33 @@ async def search_schemes(
         df = get_cached_nav_data()
         
         if df is None or len(df) == 0:
+            logger.warning("⚠️ No data available for search")
             return {"total_results": 0, "schemes": []}
         
+        logger.info(f"   Available columns: {list(df.columns)}")
         # Search
         query_lower = query.lower()
-        try:
-            mask = (
+        
+        mask = (
                 df['Scheme Name'].str.lower().str.contains(query_lower, na=False) |
                 df['Scheme Code'].astype(str).str.contains(query_lower, na=False) |
                 df['AMC'].str.lower().str.contains(query_lower, na=False)
             )
-        except:
-            mask = (
-                df['scheme_name'].str.lower().str.contains(query_lower, na=False) |
-                df['scheme_code'].astype(str).str.contains(query_lower, na=False) |
-                df['amc'].str.lower().str.contains(query_lower, na=False)
-            )
         
         results = df[mask].head(limit)
+        logger.info(f"   Found {len(results)} matches")
+        
         schemes = []
         
         for _, row in results.iterrows():
             try:
                 scheme_entry = {
-                    "scheme_code": str(row.get('Scheme Code') or row.get('scheme_code') or ''),
-                    "scheme_name": str(row.get('Scheme Name') or row.get('scheme_name') or 'Unknown'),
-                    "amc": str(row.get('AMC') or row.get('amc') or 'Unknown'),
-                    "category": str(row.get('Scheme Category') or row.get('category') or 'Other'),
-                    "current_nav": float(row.get('NAV') or row.get('nav') or 0.0),
-                    "nav_date": str(row.get('Date') or row.get('date') or '')[:10],
+                    "scheme_code": str(row['Scheme Code']),
+                    "scheme_name": str(row['Scheme Name']),
+                    "amc": str(row['AMC']),
+                    "category": str(row.get('Scheme Category','Other')),
+                    "current_nav": float(row['NAV']),
+                    "nav_date": str(row['Date'])[:10],
                 }
                 schemes.append(scheme_entry)
             except Exception as e:
@@ -228,30 +259,30 @@ async def get_scheme_details(scheme_code: str):
         if df is None or len(df) == 0:
             raise HTTPException(status_code=503, detail="No data available")
         
-        try:
-            scheme = df[df['Scheme Code'] == scheme_code]
-            if scheme.empty:
-                scheme = df[df['scheme_code'] == scheme_code]
-        except:
-            scheme = df[df['scheme_code'] == scheme_code]
+        scheme = df[df['Scheme Code'] == scheme_code]
+        if scheme.empty:
+            scheme = df[df['Scheme Code'].astype(str) == str(scheme_code)]
+        
         
         if scheme.empty:
             raise HTTPException(status_code=404, detail="Scheme not found")
         
         row = scheme.iloc[0]
         return {
-            "scheme_code": str(row.get('Scheme Code') or row.get('scheme_code') or scheme_code),
-            "scheme_name": str(row.get('Scheme Name') or row.get('scheme_name') or 'Unknown'),
-            "amc": str(row.get('AMC') or row.get('amc') or 'Unknown'),
-            "category": str(row.get('Scheme Category') or row.get('category') or 'Other'),
-            "current_nav": float(row.get('NAV') or row.get('nav') or 0.0),
-            "nav_date": str(row.get('Date') or row.get('date') or '')[:10],
+            "scheme_code": str(row['Scheme Code']),
+            "scheme_name": str(row['Scheme Name']),
+            "amc": str(row['AMC']),
+            "category": str(row.get('Scheme Category', 'Other')),
+            "current_nav": float(row['NAV']),
+            "nav_date": str(row['Date'])[:10],
+            "isin_div": str(row.get('ISIN Div Payout', 'N/A')),
+            "isin_growth": str(row.get('ISIN Div Reinvestment', 'N/A')),
         }
     
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ Detail error: {e}")
+        logger.error(f"❌ Detail error: {e}",exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 # ==========================================
@@ -266,12 +297,33 @@ async def get_all_nav():
         if df is None or df.empty:
             return []
         
-        df['Date'] = df['Date'].astype(str)
-        return df.to_dict('records')
+        result = []
+        for _, row in df.iterrows():
+            result.append({
+                "Scheme Code": str(row['Scheme Code']),
+                "Scheme Name": str(row['Scheme Name']),
+                "NAV": float(row['NAV']),
+                "Date": str(row['Date'])[:10],
+                "AMC": str(row['AMC']),
+                "Scheme Category": str(row.get('Scheme Category', 'Other'))
+            })
+        
+        return result
     
     except Exception as e:
         logger.error(f"❌ Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/nav/search")
+async def search_nav(
+    q: str = Query(..., min_length=2),
+    limit: int = Query(20, ge=1, le=200)
+):
+    """
+    Alternative search endpoint (used by some frontend code)
+    """
+    # Redirect to main search
+    return await search_schemes(query=q, limit=limit)
 
 @router.get("/schemes/{scheme_code}/history")
 async def get_scheme_history(
@@ -287,10 +339,14 @@ async def get_scheme_history(
             raise HTTPException(status_code=404, detail="History not found")
         
         history = history.tail(days)
-        history['Date'] = history['Date'].astype(str)
-        
+        history_list = []
+        for _, row in history.iterrows():
+            history_list.append({
+                "date": str(row['Date'])[:10],
+                "nav": float(row['NAV'])
+            })        
         logger.info(f"✅ Returned {len(history)} history records")
-        return history.to_dict('records')
+        return history_list
     
     except HTTPException:
         raise
