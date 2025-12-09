@@ -1,26 +1,35 @@
 """
-API client wrapper for all backend calls
-Centralized API communication for the frontend
+API Client for MF_NAVigator Frontend - COMPLETE FIXED VERSION
+Centralized wrapper for all backend API calls
 """
 
 import requests
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 import streamlit as st
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 class APIClient:
-    """Centralized API client for MF_NAVigator"""
+    """Centralized API client for MF_NAVigator frontend"""
     
     def __init__(self, base_url: str = "http://localhost:8000"):
         """
         Initialize API client
         
         Args:
-            base_url: Base URL of the API (default: localhost:8000)
+            base_url: Base URL of the API (default: http://localhost:8000)
         """
         self.base_url = base_url
         self.api_v1 = f"{base_url}/api/v1"
         self.timeout = 30
+        logger.info(f"✅ APIClient initialized with base URL: {base_url}")
+    
+    # ==========================================
+    # CORE REQUEST METHOD
+    # ==========================================
     
     def _make_request(
         self,
@@ -28,18 +37,18 @@ class APIClient:
         url: str,
         show_error: bool = True,
         **kwargs
-    ) -> Optional[Dict]:
+    ) -> Optional[Any]:
         """
-        Make HTTP request with error handling
+        Make HTTP request with comprehensive error handling
         
         Args:
-            method: HTTP method (GET, POST, etc.)
+            method: HTTP method (GET, POST, PUT, DELETE, etc.)
             url: Full URL to request
             show_error: Whether to show error messages in Streamlit
             **kwargs: Additional arguments to pass to requests
         
         Returns:
-            Response JSON or None if error
+            Response JSON/data or None if error
         """
         try:
             response = requests.request(
@@ -48,43 +57,53 @@ class APIClient:
                 timeout=self.timeout,
                 **kwargs
             )
+            
             response.raise_for_status()
-            return response.json()
+            
+            # Return JSON if available
+            try:
+                return response.json()
+            except:
+                return response.text
+        
         except requests.exceptions.Timeout:
             if show_error:
                 st.error("⏱️ Request timed out. Please try again.")
+            logger.error(f"Timeout: {method} {url}")
             return None
+        
         except requests.exceptions.ConnectionError:
             if show_error:
-                st.error("🔴 Cannot connect to API. Ensure the backend is running.")
+                st.error("🔴 Cannot connect to API. Ensure backend is running at " + self.base_url)
+            logger.error(f"Connection error: {method} {url}")
             return None
+        
         except requests.exceptions.HTTPError as e:
             if show_error:
                 st.error(f"❌ API Error: {e}")
+            logger.error(f"HTTP error: {method} {url} - {e}")
             return None
+        
         except Exception as e:
             if show_error:
                 st.error(f"⚠️ Unexpected error: {e}")
+            logger.error(f"Unexpected error: {method} {url} - {e}")
             return None
     
     # ==========================================
-    # Scheme Endpoints
+    # SCHEME SEARCH & DETAILS
     # ==========================================
     
-    def search_schemes(
-        self,
-        query: str,
-        limit: int = 10
-    ) -> Optional[Dict]:
+    def search_schemes(self, query: str, limit: int = 20) -> Optional[Dict]:
         """
-        Search mutual fund schemes
+        Search mutual fund schemes by name, AMC, or code
         
         Args:
-            query: Search query (scheme name, AMC, code)
-            limit: Maximum results to return
+            query: Search query string
+            limit: Maximum number of results
         
         Returns:
-            Dictionary with search results or None
+            Dictionary with 'total_results' and 'schemes' list
         """
         return self._make_request(
             "GET",
@@ -94,111 +113,204 @@ class APIClient:
     
     def get_scheme_details(self, scheme_code: str) -> Optional[Dict]:
         """
-        Get details for a specific scheme
+        Get detailed information for a specific scheme
         
         Args:
-            scheme_code: Scheme code
+            scheme_code: Unique scheme code
         
         Returns:
-            Scheme details dictionary or None
+            Scheme details dictionary
         """
         return self._make_request(
             "GET",
             f"{self.api_v1}/schemes/{scheme_code}"
         )
     
+    def get_all_schemes(self) -> Optional[List[Dict]]:
+        """Get list of all available schemes"""
+        return self._make_request(
+            "GET",
+            f"{self.api_v1}/nav",
+            show_error=False
+        )
+    
     # ==========================================
-    # Metrics Endpoints
+    # HISTORICAL DATA
     # ==========================================
     
-    def get_financial_metrics(self, scheme_code: str) -> Optional[Dict]:
+    def get_historical_data(self, scheme_code: str, days: int = 365) -> Optional[Dict]:
         """
-        Get financial metrics for a scheme
+        Get historical NAV data for a scheme
         
         Args:
             scheme_code: Scheme code
+            days: Number of days of historical data
         
         Returns:
-            Financial metrics dictionary
+            Historical NAV data
         """
         return self._make_request(
             "GET",
-            f"{self.api_v1}/metrics/financial/{scheme_code}"
+            f"{self.api_v1}/schemes/{scheme_code}/history",
+            params={"days": days}
+        )
+    
+    # ==========================================
+    # ANALYTICS & METRICS
+    # ==========================================
+    
+    def get_cagr(self, scheme_code: str, years: int = 3) -> Optional[Dict]:
+        """Get CAGR for a scheme"""
+        return self._make_request(
+            "GET",
+            f"{self.api_v1}/analytics/cagr/{scheme_code}",
+            params={"years": years}
         )
     
     def get_risk_metrics(self, scheme_code: str) -> Optional[Dict]:
-        """
-        Get risk metrics for a scheme
-        
-        Args:
-            scheme_code: Scheme code
-        
-        Returns:
-            Risk metrics dictionary
-        """
+        """Get risk metrics for a scheme"""
         return self._make_request(
             "GET",
-            f"{self.api_v1}/metrics/risk/{scheme_code}"
+            f"{self.api_v1}/analytics/risk/{scheme_code}"
         )
     
     def get_comprehensive_metrics(self, scheme_code: str) -> Optional[Dict]:
-        """
-        Get comprehensive metrics (financial + risk) for a scheme
-        
-        Args:
-            scheme_code: Scheme code
-        
-        Returns:
-            Comprehensive metrics dictionary
-        """
+        """Get comprehensive financial and risk metrics"""
         return self._make_request(
             "GET",
-            f"{self.api_v1}/metrics/comprehensive/{scheme_code}"
+            f"{self.api_v1}/analytics/comprehensive/{scheme_code}"
         )
     
     # ==========================================
-    # Portfolio Endpoints
+    # COMPARISON
     # ==========================================
     
-    def analyze_portfolio(self, schemes: List[Dict]) -> Optional[Dict]:
+    def compare_schemes(self, scheme_codes: List[str]) -> Optional[Dict]:
+        """
+        Compare multiple schemes side-by-side
+        
+        Args:
+            scheme_codes: List of scheme codes to compare
+        
+        Returns:
+            Comparison data with metrics for all schemes
+        """
+        # Try POST with JSON body first
+        result = self._make_request(
+            "POST",
+            f"{self.api_v1}/analytics/compare",
+            json=scheme_codes,
+            show_error=False
+        )
+        
+        # Fallback to GET with query params
+        if result is None:
+            result = self._make_request(
+                "GET",
+                f"{self.api_v1}/analytics/compare",
+                params={"scheme_codes": scheme_codes}
+            )
+        
+        return result
+    
+    # ==========================================
+    # PORTFOLIO MANAGEMENT
+    # ==========================================
+    
+    def analyze_portfolio(self, portfolio_data: Dict) -> Optional[Dict]:
         """
         Analyze a portfolio of schemes
         
         Args:
-            schemes: List of dicts with 'scheme_code' and 'weight'
-            Example: [
-                {"scheme_code": "119551", "weight": 0.4},
-                {"scheme_code": "120503", "weight": 0.6}
-            ]
+            portfolio_data: Dictionary with portfolio details
         
         Returns:
-            Portfolio metrics dictionary
+            Portfolio analysis metrics
         """
         return self._make_request(
             "POST",
             f"{self.api_v1}/portfolio/analyze",
-            json={"schemes": schemes}
+            json=portfolio_data
         )
     
-    def compare_schemes(self, scheme_codes: List[str]) -> Optional[Dict]:
+    def save_portfolio(self, portfolio_data: Dict) -> Dict:
         """
-        Compare multiple schemes side by side
+        Save portfolio to backend
         
         Args:
-            scheme_codes: List of scheme codes to compare
-            Example: ["119551", "120503", "118989"]
+            portfolio_data: Portfolio data to save
         
         Returns:
-            Comparison results dictionary
+            Response with portfolio_id if successful
         """
-        return self._make_request(
+        result = self._make_request(
             "POST",
-            f"{self.api_v1}/schemes/compare",
-            json=scheme_codes
+            f"{self.api_v1}/portfolio/save",
+            json=portfolio_data
         )
+        
+        if result is None:
+            return {"success": False, "error": "Request failed"}
+        
+        return result
+    
+    def get_saved_portfolios(self) -> List[Dict]:
+        """
+        Get list of all saved portfolios
+        
+        Returns:
+            List of portfolio summaries
+        """
+        result = self._make_request(
+            "GET",
+            f"{self.api_v1}/portfolio",
+            show_error=False
+        )
+        
+        # Handle both response formats
+        if isinstance(result, list):
+            return result
+        elif isinstance(result, dict) and 'portfolios' in result:
+            return result['portfolios']
+        else:
+            return []
+    
+    def get_portfolio(self, portfolio_id: str) -> Dict:
+        """
+        Get specific portfolio details
+        
+        Args:
+            portfolio_id: Portfolio UUID
+        
+        Returns:
+            Portfolio details
+        """
+        result = self._make_request(
+            "GET",
+            f"{self.api_v1}/portfolio/{portfolio_id}"
+        )
+        
+        return result if result else {}
+    
+    def delete_portfolio(self, portfolio_id: str) -> Dict:
+        """
+        Delete a portfolio
+        
+        Args:
+            portfolio_id: Portfolio UUID
+        
+        Returns:
+            Deletion status
+        """
+        result = self._make_request(
+            "DELETE",
+            f"{self.api_v1}/portfolio/{portfolio_id}"
+        )
+        
+        return result if result else {"success": False, "error": "Request failed"}
     
     # ==========================================
-    # Prediction Endpoints
+    # NAV PREDICTIONS
     # ==========================================
     
     def predict_nav(self, scheme_code: str, forecast_days: int = 30) -> Optional[Dict]:
@@ -210,22 +322,16 @@ class APIClient:
             forecast_days: Number of days to forecast
         
         Returns:
-            Prediction dictionary or None
+            Prediction data
         """
-        try:
-            response = requests.post(
-                f"{self.api_v1}/predict/single",
-                json={
-                    "scheme_code": scheme_code,
-                    "forecast_days": forecast_days
-                },
-                timeout=self.timeout
-            )
-            response.raise_for_status()
-            return response.json()
-        except Exception as e:
-            st.error(f"API Error: {str(e)}")
-            return None
+        return self._make_request(
+            "POST",
+            f"{self.api_v1}/predict/single",
+            json={
+                "scheme_code": scheme_code,
+                "forecast_days": forecast_days
+            }
+        )
     
     def predict_sequence(self, scheme_code: str, days: int = 7) -> Optional[Dict]:
         """
@@ -233,147 +339,84 @@ class APIClient:
         
         Args:
             scheme_code: Scheme code
-            days: Number of days to predict
+            days: Number of days to predict (1-30)
         
         Returns:
-            Sequential predictions dictionary or None
+            Sequential predictions
         """
-        try:
-            response = requests.get(
-                f"{self.api_v1}/predict/sequence",
-                params={
-                    "scheme_code": scheme_code,
-                    "days": days
-                },
-                timeout=self.timeout
-            )
-            response.raise_for_status()
-            return response.json()
-        except Exception as e:
-            st.error(f"API Error: {str(e)}")
-            return None
+        return self._make_request(
+            "GET",
+            f"{self.api_v1}/predict/sequence/{scheme_code}",
+            params={"days": days}
+        )
     
     # ==========================================
-    # Historical Data Endpoints
+    # NEWS & MARKET DATA
     # ==========================================
     
-    def get_historical_data(self, scheme_code: str, limit: int = 365) -> Optional[Dict]:
+    def get_market_news(self, topic: str = "equity mutual funds", limit: int = 20) -> Optional[Dict]:
         """
-        Get historical NAV data for a scheme
+        Get latest market news
         
         Args:
-            scheme_code: Scheme code
-            limit: Maximum data points
+            topic: News topic
+            limit: Number of articles
         
         Returns:
-            Historical data dictionary or None
+            News articles
         """
-        try:
-            response = requests.get(
-                f"{self.api_v1}/historical/{scheme_code}",
-                params={"limit": limit},
-                timeout=self.timeout
-            )
-            response.raise_for_status()
-            return response.json()
-        except Exception as e:
-            st.error(f"API Error: {str(e)}")
-            return None
+        return self._make_request(
+            "GET",
+            f"{self.api_v1}/news/market",
+            params={"topic": topic, "limit": limit}
+        )
+    
+    def analyze_market_news(self, query: str) -> Optional[Dict]:
+        """Get AI-analyzed market news"""
+        return self._make_request(
+            "POST",
+            f"{self.api_v1}/news/analyze",
+            params={"query": query}
+        )
+    
+    def get_news_sources(self) -> Optional[Dict]:
+        """Get list of configured news sources"""
+        return self._make_request(
+            "GET",
+            f"{self.api_v1}/news/sources"
+        )
     
     # ==========================================
-    # Portfolio Save/Manage Endpoints
+    # AUM DATA
     # ==========================================
     
-    def save_portfolio(self, portfolio_data: dict) -> dict:
+    def get_aum_data(self, scheme_code: Optional[str] = None) -> Optional[Dict]:
         """
-        Save portfolio to backend
+        Get AUM (Assets Under Management) data
         
         Args:
-            portfolio_data: Portfolio data dictionary
+            scheme_code: Optional specific scheme code
         
         Returns:
-            Response dictionary
+            AUM data
         """
-        try:
-            response = requests.post(
-                f"{self.api_v1}/portfolio/save",
-                json=portfolio_data,
-                timeout=self.timeout
-            )
-            response.raise_for_status()
-            return response.json()
-        except Exception as e:
-            st.error(f"API Error: {str(e)}")
-            return {"success": False, "error": str(e)}
-    
-    def get_saved_portfolios(self) -> list:
-        """
-        Get list of saved portfolios
+        params = {}
+        if scheme_code:
+            params['scheme_code'] = scheme_code
         
-        Returns:
-            List of portfolios
-        """
-        try:
-            response = requests.get(
-                f"{self.api_v1}/portfolio/list",
-                timeout=self.timeout
-            )
-            response.raise_for_status()
-            data = response.json()
-            return data.get('portfolios', [])
-        except Exception as e:
-            st.error(f"API Error: {str(e)}")
-            return []
-    
-    def get_portfolio(self, portfolio_id: str) -> dict:
-        """
-        Get portfolio details
-        
-        Args:
-            portfolio_id: Portfolio ID
-        
-        Returns:
-            Portfolio dictionary
-        """
-        try:
-            response = requests.get(
-                f"{self.api_v1}/portfolio/{portfolio_id}",
-                timeout=self.timeout
-            )
-            response.raise_for_status()
-            return response.json()
-        except Exception as e:
-            st.error(f"API Error: {str(e)}")
-            return {}
-    
-    def delete_portfolio(self, portfolio_id: str) -> dict:
-        """
-        Delete portfolio
-        
-        Args:
-            portfolio_id: Portfolio ID
-        
-        Returns:
-            Response dictionary
-        """
-        try:
-            response = requests.delete(
-                f"{self.api_v1}/portfolio/{portfolio_id}",
-                timeout=self.timeout
-            )
-            response.raise_for_status()
-            return response.json()
-        except Exception as e:
-            st.error(f"API Error: {str(e)}")
-            return {"success": False, "error": str(e)}
+        return self._make_request(
+            "GET",
+            f"{self.api_v1}/aum",
+            params=params
+        )
     
     # ==========================================
-    # Health Check
+    # HEALTH CHECK
     # ==========================================
     
     def check_api_health(self) -> bool:
         """
-        Check if API is running and healthy
+        Check if backend API is running and healthy
         
         Returns:
             True if API is healthy, False otherwise
@@ -387,28 +430,35 @@ class APIClient:
         except:
             return False
     
+    def get_api_status(self) -> Optional[Dict]:
+        """Get detailed API status"""
+        return self._make_request(
+            "GET",
+            f"{self.api_v1}/status",
+            show_error=False
+        )
+    
     # ==========================================
-    # Batch Operations
+    # BATCH OPERATIONS
     # ==========================================
     
-    def batch_get_metrics(
-        self,
-        scheme_codes: List[str]
-    ) -> Dict[str, Dict]:
+    def batch_get_metrics(self, scheme_codes: List[str]) -> Dict[str, Dict]:
         """
-        Get metrics for multiple schemes
+        Get comprehensive metrics for multiple schemes
         
         Args:
             scheme_codes: List of scheme codes
         
         Returns:
-            Dictionary with {scheme_code: metrics}
+            Dictionary mapping scheme codes to their metrics
         """
         results = {}
+        
         for code in scheme_codes:
             metrics = self.get_comprehensive_metrics(code)
             if metrics:
                 results[code] = metrics
+        
         return results
     
     def batch_get_predictions(
@@ -424,54 +474,64 @@ class APIClient:
             forecast_days: Number of days to forecast
         
         Returns:
-            Dictionary with {scheme_code: prediction}
+            Dictionary mapping scheme codes to predictions
         """
         results = {}
+        
         for code in scheme_codes:
             prediction = self.predict_nav(code, forecast_days)
             if prediction:
                 results[code] = prediction
+        
         return results
-    def get_market_news(
-        self,
-        topic: str = "equity mutual funds",
-        limit: int = 20
-    ) -> Optional[Dict]:
+    
+    # ==========================================
+    # UTILITY METHODS
+    # ==========================================
+    
+    def test_connection(self) -> bool:
         """
-        Get latest market news
-        
-        Args:
-            topic: News topic
-            limit: Max articles
+        Test connection to backend
         
         Returns:
-            News data dictionary
+            True if connection successful
         """
-        return self._make_request(
-            "GET",
-            f"{self.api_v1}/news/market",
-            params={"topic": topic, "limit": limit}
-        )
+        try:
+            response = requests.get(f"{self.base_url}/health", timeout=5)
+            return response.status_code == 200
+        except:
+            return False
+    
+    def get_base_url(self) -> str:
+        """Get configured base URL"""
+        return self.base_url
+    
+    def set_timeout(self, timeout: int):
+        """Set request timeout in seconds"""
+        self.timeout = timeout
+        logger.info(f"Timeout set to {timeout}s")
 
-    def analyze_market_news(self, query: str) -> Optional[Dict]:
-        """
-        Get AI-analyzed market news
-        
-        Args:
-            query: User question
-        
-        Returns:
-            Analysis dictionary
-        """
-        return self._make_request(
-            "POST",
-            f"{self.api_v1}/news/analyze",
-            params={"query": query}
-        )
 
-    def get_news_sources(self) -> Optional[Dict]:
-        """Get list of news sources"""
-        return self._make_request(
-            "GET",
-            f"{self.api_v1}/news/sources"
-        )
+# ==========================================
+# SINGLETON INSTANCE
+# ==========================================
+
+# Create default instance
+_default_client = None
+
+def get_api_client(base_url: str = "http://localhost:8000") -> APIClient:
+    """
+    Get or create API client instance
+    
+    Args:
+        base_url: Base URL for API
+    
+    Returns:
+        APIClient instance
+    """
+    global _default_client
+    
+    if _default_client is None:
+        _default_client = APIClient(base_url)
+    
+    return _default_client

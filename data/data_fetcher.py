@@ -1,6 +1,6 @@
 """
-DATA FETCHER - FULLY FIXED VERSION
-Consistent column naming and proper data normalization
+DATA FETCHER - FIXED VERSION
+Handles AMFI header lines correctly
 """
 
 import pandas as pd
@@ -27,7 +27,7 @@ AMFI_NAV_URL = "https://www.amfiindia.com/spages/NAVAll.txt"
 MFAPI_URL = "https://api.mfapi.in/mf/{}"
 
 # ==========================================
-# STANDARDIZED COLUMN NAMES (CONSISTENT!)
+# STANDARDIZED COLUMN NAMES
 # ==========================================
 STANDARD_COLUMNS = {
     'scheme_code': 'Scheme Code',
@@ -47,7 +47,7 @@ STANDARD_COLUMNS = {
 
 def get_latest_navs():
     """
-    ✅ FIXED: Fetches latest NAVs from AMFI with STANDARDIZED column names
+    ✅ FIXED: Fetches latest NAVs from AMFI with proper header handling
     """
     logger.info("📡 Fetching latest NAVs from AMFI...")
     
@@ -58,8 +58,17 @@ def get_latest_navs():
         lines = response.text.split('\n')
         logger.info(f"   Retrieved {len(lines)} lines from AMFI")
         
-        # Find data lines
-        data_lines = [line for line in lines if line.strip() and line.count(';') >= 5]
+        # ✅ FIX: Filter out header lines
+        data_lines = []
+        for line in lines:
+            if not line.strip():
+                continue
+            if line.count(';') < 5:
+                continue
+            # Skip header lines (contain text like "Net Asset Value", "Scheme Code", etc.)
+            if any(header in line for header in ['Net Asset Value', 'Scheme Code', 'Scheme Name', 'ISIN']):
+                continue
+            data_lines.append(line)
         
         if not data_lines:
             logger.error("❌ No valid data lines found in AMFI file")
@@ -82,17 +91,21 @@ def get_latest_navs():
                 'ISIN Div Payout': str,
                 'ISIN Div Reinvestment': str,
                 'Scheme Name': str,
-                'NAV': float,
                 'Date': str
-            }
+            },
+            on_bad_lines='skip'  # ✅ Skip problematic lines
         )
         
         logger.info(f"   Parsed {len(df)} records")
         
-        # Clean data
+        # ✅ FIX: Clean data properly
         initial = len(df)
-        df = df.dropna(subset=['NAV', 'Scheme Name'])
+        
+        # Convert NAV to numeric (handle any remaining non-numeric values)
         df['NAV'] = pd.to_numeric(df['NAV'], errors='coerce')
+        
+        # Remove invalid rows
+        df = df.dropna(subset=['NAV', 'Scheme Name'])
         df = df[df['NAV'] > 0]
         
         logger.info(f"   Removed {initial - len(df)} invalid records")
@@ -121,6 +134,8 @@ def get_latest_navs():
     
     except Exception as e:
         logger.error(f"❌ Error fetching AMFI NAV data: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return pd.DataFrame()
 
 # ==========================================
@@ -346,7 +361,10 @@ def test_data_fetcher():
     # Test 1: Get NAVs
     print("TEST 1: Fetching NAV data...")
     nav_df = get_latest_navs()
-    print(f"   Result: {len(nav_df)} records")
+    if nav_df.empty:
+        print("   ❌ FAILED: No data returned")
+        return
+    print(f"   ✅ SUCCESS: {len(nav_df)} records")
     if not nav_df.empty:
         print(f"   Columns: {list(nav_df.columns)}")
         print(f"   Sample:\n{nav_df.head(3)}\n")

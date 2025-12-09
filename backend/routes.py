@@ -19,6 +19,7 @@ from pydantic import BaseModel
 import logging
 import sys
 import os
+import numpy as np
 
 # ==========================================
 # LOGGING CONFIGURATION
@@ -478,39 +479,69 @@ async def get_comprehensive_metrics(scheme_code: str):
 # COMPARISON ROUTES
 # ==========================================
 
-@router.post("/analytics/compare")
-async def compare_schemes(scheme_codes: List[str] = Query(...)):
-    """Compare performance of multiple schemes"""
+@router.get("/analytics/compare")
+async def compare_schemes_get(
+    scheme_codes: list[str] = Query(..., description="List of scheme codes to compare")
+):
+    """Compare schemes - GET version with query params"""
     try:
-        if comparator is None:
-            raise HTTPException(status_code=503, detail="Comparator not available")
+        logger.info(f"📊 Comparing schemes via GET: {scheme_codes}")
         
         if len(scheme_codes) < 2:
             raise HTTPException(status_code=400, detail="Need at least 2 schemes")
         
-        logger.info(f"📊 Comparing {len(scheme_codes)} schemes")
-        
-        comparison_data = {}
+        # Fetch NAV data for all schemes
+        nav_data = {}
         for code in scheme_codes:
-            history = get_nav_history(code)
-            if history is not None and not history.empty:
-                comparison_data[code] = pd.Series(history['NAV'].values)
+            history_df = get_nav_history(code)
+            if history_df is not None and not history_df.empty:
+                nav_series = pd.Series(
+                    history_df['NAV'].values if 'NAV' in history_df.columns else history_df['nav'].values,
+                    index=pd.to_datetime(history_df['Date'] if 'Date' in history_df.columns else history_df['date'])
+                )
+                nav_data[code] = nav_series
         
-        if len(comparison_data) < 2:
-            raise HTTPException(status_code=404, detail="Could not load data")
+        if len(nav_data) < 2:
+            raise HTTPException(status_code=404, detail="Could not load data for at least 2 schemes")
         
-        result = comparator.compare_schemes(list(comparison_data.keys()), comparison_data)
+        # Compare using comparator
+        if comparator is None:
+            # Fallback: basic comparison without comparator
+            comparison_list = []
+            for code, nav_series in nav_data.items():
+                comparison_list.append({
+                    "scheme_code": code,
+                    "current_nav": float(nav_series.iloc[-1]),
+                    "cagr": None,
+                    "volatility": float(nav_series.pct_change().std() * (252 ** 0.5)) if len(nav_series) > 1 else 0
+                    # OR use math.sqrt(252) after importing math
+                })
+
+            
+            return {
+                "comparison": comparison_list,
+                "normalized_performance": {},
+                "correlation_matrix": {}
+            }
         
-        logger.info(f"✅ Comparison complete")
-        return {
-            "comparison": result.to_dict() if hasattr(result, 'to_dict') else result,
-            "schemes_compared": len(comparison_data)
+        comparison = comparator.compare_schemes(list(nav_data.keys()), nav_data)
+        
+        # Format result
+        result = {
+            "comparison": comparison['comparison'].to_dict('records') if hasattr(comparison.get('comparison'), 'to_dict') else [],
+            "normalized_performance": {},
+            "correlation_matrix": comparator.get_correlation_matrix(nav_data).to_dict() if hasattr(comparator, 'get_correlation_matrix') else {}
         }
+        
+        logger.info(f"✅ Compared {len(nav_data)} schemes")
+        return result
     
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"❌ Comparison error: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 # ==========================================
@@ -655,74 +686,145 @@ async def delete_portfolio(portfolio_id: str):
 
 @router.post("/predict/single")
 async def predict_nav_endpoint(req: PredictionRequest):
-    """Predict NAV for a scheme"""
+    """
+    Predict NAV for a scheme
+    FIXED: Better error handling and validation
+    """
     try:
         if NAVPredictor is None:
             raise HTTPException(status_code=503, detail="Predictor not available")
         
-        logger.info(f"🔮 Predicting NAV for: {req.scheme_code}")
+        logger.info(f"🔮 Predicting NAV for: {req.scheme_code}, {req.forecast_days} days")
         
+        # Get history
         history = get_nav_history(req.scheme_code)
         if history is None or history.empty:
-            raise HTTPException(status_code=404, detail="History not found")
+            raise HTTPException(
+                status_code=404, 
+                detail=f"No history found for scheme {req.scheme_code}"
+            )
         
-        if len(history) < 200:
-            raise HTTPException(status_code=400, detail="Not enough historical data")
+        # Check minimum data requirement
+        min_required = 200
+        if len(history) < min_required:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Insufficient data: need {min_required} days, have {len(history)} days"
+            )
         
+        # Create predictor
         nav_series = pd.Series(history['NAV'].values)
         predictor_instance = NAVPredictor(lookback_days=60, forecast_days=req.forecast_days)
+        
+        # Train model
+        logger.info("   Training model...")
         metrics = predictor_instance.train(nav_series, validation_split=0.2)
+        
+        # Generate prediction
+        logger.info("   Generating prediction...")
         prediction_df = predictor_instance.predict(nav_series)
         
-        logger.info(f"✅ Prediction generated")
+        current_nav = float(nav_series.iloc[-1])
+        predicted_nav = float(prediction_df['Predicted_NAV'].iloc[0])
+        change = predicted_nav - current_nav
+        change_pct = (change / current_nav) * 100
+        
+        # Determine confidence
+        val_mape = metrics.get('val_mape', 100)
+        if val_mape < 2:
+            confidence = "High"
+        elif val_mape < 5:
+            confidence = "Medium"
+        else:
+            confidence = "Low"
+        
+        logger.info(f"✅ Prediction complete: ₹{predicted_nav:.2f} ({change_pct:+.2f}%)")
+        
         return {
             "scheme_code": req.scheme_code,
-            "current_nav": float(nav_series.iloc[-1]),
-            "predicted_nav": float(prediction_df['PredictedNAV'].iloc[0]),
-            "confidence": "High" if metrics.get('val_mape', 100) < 2 else "Medium",
-            "model_performance": metrics
+            "scheme_name": f"Scheme {req.scheme_code}",
+            "current_nav": current_nav,
+            "prediction": {
+                "predicted_nav": predicted_nav,
+                "date": str(prediction_df['Date'].iloc[0]),
+                "change": change,
+                "change_percent": change_pct
+            },
+            "confidence": confidence,
+            "model_performance": {
+                "validation_mape": f"{val_mape:.2f}%",
+                "directional_accuracy": f"{metrics.get('val_directional', 0):.1f}%",
+                "training_samples": metrics.get('train_samples', 0),
+                "validation_samples": metrics.get('val_samples', 0),
+                "confidence": confidence
+            }
         }
     
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ Prediction error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"❌ Prediction error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
 
 @router.get("/predict/sequence/{scheme_code}")
 async def predict_sequence(
     scheme_code: str,
-    days: int = Query(7, ge=1, le=30)
+    days: int = Query(7, ge=1, le=30, description="Number of days to predict")
 ):
-    """Get sequential NAV predictions"""
+    """Get sequential NAV predictions - FIXED"""
     try:
+        logger.info(f"🔮 Predicting {days}-day sequence for {scheme_code}")
+        
+        # Get historical data
+        history_df = get_nav_history(scheme_code)
+        
+        if history_df is None or history_df.empty:
+            raise HTTPException(status_code=404, detail="No history found")
+        
+        if len(history_df) < 200:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Not enough data. Need 200+ days, found {len(history_df)}"
+            )
+        
+        # Check if predictor is available
         if NAVPredictor is None:
             raise HTTPException(status_code=503, detail="Predictor not available")
         
-        logger.info(f"🔮 Getting {days}-day sequence for: {scheme_code}")
+        # Prepare data
+        nav_series = pd.Series(
+            history_df['NAV'].values if 'NAV' in history_df.columns else history_df['nav'].values
+        )
         
-        history = get_nav_history(scheme_code)
-        if history is None or history.empty:
-            raise HTTPException(status_code=404, detail="History not found")
-        
-        if len(history) < 200:
-            raise HTTPException(status_code=400, detail="Not enough historical data")
-        
-        nav_series = pd.Series(history['NAV'].values)
+        # Train predictor
         predictor_instance = NAVPredictor(lookback_days=60, forecast_days=1)
         predictor_instance.train(nav_series, validation_split=0.2)
+        
+        # Generate sequence
         seq_predictions = predictor_instance.predict_sequence(nav_series, n_days=days)
         
-        logger.info(f"✅ Sequence generated")
-        return {
+        # Get scheme name
+        nav_data_df = get_enhanced_nav_data()
+        scheme_data = nav_data_df[nav_data_df['Scheme Code'].astype(str) == str(scheme_code)]
+        scheme_name = scheme_data.iloc[0]['Scheme Name'] if not scheme_data.empty else scheme_code
+        
+        # Format response
+        result = {
             "scheme_code": scheme_code,
+            "scheme_name": scheme_name,
+            "current_nav": float(nav_series.iloc[-1]),
             "predictions": seq_predictions.to_dict('records') if hasattr(seq_predictions, 'to_dict') else seq_predictions
         }
+        
+        logger.info(f"✅ Generated {days}-day sequence for {scheme_code}")
+        return result
     
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ Sequence error: {e}")
+        logger.error(f"❌ Sequence prediction error: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 # ==========================================

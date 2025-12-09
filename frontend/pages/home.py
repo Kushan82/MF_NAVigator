@@ -254,20 +254,12 @@ def render_table_view(schemes_list: list):
 
 def render_cards_view(schemes_list: list):
     """Render schemes as cards with pagination"""
-    
     items_per_page = 10
-    total_pages = (len(schemes_list) + items_per_page - 1) // items_per_page
+    total_pages = (len(schemes_list) - 1) // items_per_page + 1
     
     col1, col2, col3 = st.columns([1, 2, 1])
-    
     with col2:
-        page = st.slider(
-            "Select page",
-            min_value=1,
-            max_value=total_pages,
-            value=1,
-            key=f"home_card_page_{len(schemes_list)}"
-        )
+        page = st.slider("Select page", min_value=1, max_value=total_pages, value=1, key=f"home_card_page_{len(schemes_list)}")
     
     start_idx = (page - 1) * items_per_page
     end_idx = min(start_idx + items_per_page, len(schemes_list))
@@ -279,15 +271,18 @@ def render_cards_view(schemes_list: list):
     for i, scheme in enumerate(page_schemes):
         card_idx = start_idx + i
         
-        with st.expander(f"📊 {scheme['scheme_name'][:50]} - {scheme['scheme_code']}", expanded=False):
+        with st.expander(f"{scheme['scheme_name'][:50]} - {scheme['scheme_code']}", expanded=False):
             col1, col2, col3, col4 = st.columns(4)
             
             with col1:
                 st.metric("NAV", f"₹{scheme['current_nav']:.2f}")
+            
             with col2:
                 st.metric("AMC", scheme['amc'][:20])
+            
             with col3:
                 st.metric("Category", str(scheme.get('category', 'N/A'))[:20])
+            
             with col4:
                 st.metric("Date", scheme['nav_date'])
             
@@ -296,89 +291,111 @@ def render_cards_view(schemes_list: list):
             col1, col2, col3, col4 = st.columns(4)
             
             with col1:
-                if st.button("📊 Analyze", key=f"home_card_analyze_{card_idx}", use_container_width=True):
+                if st.button("🔍 Analyze", key=f"home_card_analyze_{card_idx}", use_container_width=True):
                     navigate_to_analysis(scheme)
             
             with col2:
-                if st.button("🤖 Predict", key=f"home_card_predict_{card_idx}", use_container_width=True):
+                if st.button("📈 Predict", key=f"home_card_predict_{card_idx}", use_container_width=True):
                     navigate_to_prediction(scheme)
             
             with col3:
                 if st.button("⚖️ Compare", key=f"home_card_compare_{card_idx}", use_container_width=True):
-                    add_to_compare(scheme['scheme_code'])
+                    # ✅ FIX: Pass both code AND name
+                    add_to_compare(scheme['scheme_code'], scheme.get('scheme_name', scheme['scheme_code']))
             
             with col4:
-                if st.button("💼 Portfolio", key=f"home_card_portfolio_{card_idx}", use_container_width=True):
+                if st.button("📊 Portfolio", key=f"home_card_portfolio_{card_idx}", use_container_width=True):
+                    # ✅ FIX: Pass entire scheme dict
                     add_to_portfolio(scheme)
-
 
 def display_scheme_actions(scheme: dict):
     """Display action buttons for selected scheme"""
-    
     st.markdown("---")
-    st.markdown("#### ⚡ Quick Actions")
+    st.markdown("### Quick Actions")
     
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        if st.button("📊 View Analysis", use_container_width=True, type="primary", key="home_action_analyze"):
+        if st.button("🔍 View Analysis", use_container_width=True, type="primary", key="home_action_analyze"):
             navigate_to_analysis(scheme)
     
     with col2:
-        if st.button("🤖 Predict NAV", use_container_width=True, key="home_action_predict"):
+        if st.button("📈 Predict NAV", use_container_width=True, key="home_action_predict"):
             navigate_to_prediction(scheme)
     
     with col3:
         if st.button("⚖️ Add to Compare", use_container_width=True, key="home_action_compare"):
-            add_to_compare(scheme['scheme_code'])
+            # ✅ FIX: Pass both code AND name
+            add_to_compare(scheme['scheme_code'], scheme.get('scheme_name', scheme['scheme_code']))
     
     with col4:
-        if st.button("💼 Add to Portfolio", use_container_width=True, key="home_action_portfolio"):
+        if st.button("📊 Add to Portfolio", use_container_width=True, key="home_action_portfolio"):
+            # ✅ FIX: Pass entire scheme dict
             add_to_portfolio(scheme)
 
 
 def navigate_to_analysis(scheme: dict):
-    """Navigate to scheme analysis"""
     st.session_state['selected_scheme_code'] = scheme['scheme_code']
-    st.session_state['selected_scheme_name'] = scheme['scheme_name']
-    st.session_state['navigate_to'] = '📊 Scheme Analysis'
-    st.rerun()
-
+    st.session_state['selected_scheme_name'] = scheme.get('scheme_name', scheme['scheme_code'])
+    st.switch_page("pages/scheme_analysis.py")
 
 def navigate_to_prediction(scheme: dict):
-    """Navigate to NAV predictions"""
     st.session_state['selected_scheme_code'] = scheme['scheme_code']
-    st.session_state['selected_scheme_name'] = scheme['scheme_name']
-    st.session_state['navigate_to'] = '🤖 NAV Predictions'
-    st.rerun()
+    st.session_state['selected_scheme_name'] = scheme.get('scheme_name', scheme['scheme_code'])
+    st.switch_page("pages/nav_predictions.py")
 
 
-def add_to_compare(scheme_code: str):
-    """Add scheme to comparison list"""
+def add_to_compare(scheme_code: str, scheme_name: str = None):
+    """
+    Add scheme to comparison list - FIXED
+    
+    Args:
+        scheme_code: Scheme code
+        scheme_name: Scheme name (optional)
+    """
     if 'compare_schemes_list' not in st.session_state:
         st.session_state['compare_schemes_list'] = []
     
-    if scheme_code not in st.session_state['compare_schemes_list']:
-        st.session_state['compare_schemes_list'].append(scheme_code)
+    # ✅ FIX: Check if already added (handle both dict and string)
+    already_added = any(
+        (s.get("scheme_code") if isinstance(s, dict) else s) == scheme_code
+        for s in st.session_state['compare_schemes_list']
+    )
+    
+    if not already_added:
+        # ✅ FIX: Always add as dict with both code and name
+        st.session_state['compare_schemes_list'].append({
+            "scheme_code": scheme_code,
+            "scheme_name": scheme_name or scheme_code
+        })
         st.success(f"✅ Added to comparison! ({len(st.session_state['compare_schemes_list'])} total)")
     else:
-        st.warning("Already in comparison list")
-
+        st.warning("⚠️ Already in comparison list")
 
 def add_to_portfolio(scheme: dict):
-    """Add scheme to portfolio"""
+    """Add scheme to portfolio builder"""
     if 'portfolio_schemes_list' not in st.session_state:
         st.session_state['portfolio_schemes_list'] = []
     
-    if not any(s['code'] == scheme['scheme_code'] for s in st.session_state['portfolio_schemes_list']):
+    scheme_code = scheme['scheme_code']
+    
+    # Check if already added
+    already_added = any(
+        s.get("scheme_code") == scheme_code
+        for s in st.session_state['portfolio_schemes_list']
+    )
+    
+    if not already_added:
+        # ✅ FIX: Add as dict with all necessary info
         st.session_state['portfolio_schemes_list'].append({
-            'code': scheme['scheme_code'],
-            'name': scheme['scheme_name'],
-            'weight': 0.2
+            "scheme_code": scheme_code,
+            "scheme_name": scheme.get('scheme_name', scheme_code),
+            "current_nav": scheme.get('current_nav', 0),
+            "weight": 0  # User will set this in portfolio builder
         })
         st.success(f"✅ Added to portfolio! ({len(st.session_state['portfolio_schemes_list'])} total)")
     else:
-        st.warning("Already in portfolio")
+        st.warning("⚠️ Already in portfolio")
 
 
 def render_footer():

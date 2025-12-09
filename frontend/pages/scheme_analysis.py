@@ -540,23 +540,32 @@ def render_risk_metrics(scheme_code: str):
         st.error(f"Error loading risk metrics: {e}")
 
 def render_historical_data(scheme_code: str):
-    """Render historical NAV data section"""
+    """Render historical NAV data section - FIXED"""
     
     st.markdown("### 📊 Historical NAV Data")
     
     try:
         with st.spinner("Fetching historical data..."):
+            # FIX: Use correct endpoint path
             history = api._make_request(
                 "GET",
-                f"{api.api_v1}/nav/history/{scheme_code}",
+                f"{api.api_v1}/schemes/{scheme_code}/history",
+                params={"days": 3650},  # Get up to 10 years
                 show_error=True
             )
         
-        if not history:
-            st.warning("No historical data available")
+        # FIX: Better null checking
+        if not history or not isinstance(history, list):
+            st.warning("No historical data available for this scheme")
             return
         
         df_hist = pd.DataFrame(history)
+        
+        # Validate required columns
+        if 'date' not in df_hist.columns or 'nav' not in df_hist.columns:
+            st.error("Invalid data format received")
+            return
+        
         df_hist['date'] = pd.to_datetime(df_hist['date'])
         df_hist = df_hist.sort_values('date', ascending=False)
         
@@ -610,25 +619,34 @@ def render_historical_data(scheme_code: str):
     
     except Exception as e:
         st.error(f"Error loading historical data: {e}")
+        logger.error(f"Historical data error: {e}", exc_info=True)
 
 def render_performance_charts(scheme_code: str):
-    """Render performance visualization charts"""
+    """Render performance visualization charts - FIXED"""
     
     st.markdown("### 📉 Performance Visualizations")
     
     try:
         with st.spinner("Generating charts..."):
+            # FIX: Use correct endpoint
             history = api._make_request(
                 "GET",
-                f"{api.api_v1}/nav/history/{scheme_code}",
+                f"{api.api_v1}/schemes/{scheme_code}/history",
+                params={"days": 1825},  # 5 years
                 show_error=True
             )
         
-        if not history:
+        # FIX: Comprehensive validation
+        if not history or not isinstance(history, list):
             st.warning("No data available for charts")
             return
         
         df_hist = pd.DataFrame(history)
+        
+        if df_hist.empty or 'date' not in df_hist.columns or 'nav' not in df_hist.columns:
+            st.warning("Invalid data format for charts")
+            return
+        
         df_hist['date'] = pd.to_datetime(df_hist['date'])
         df_hist = df_hist.sort_values('date')
         
@@ -730,3 +748,4 @@ def render_performance_charts(scheme_code: str):
     
     except Exception as e:
         st.error(f"Error generating charts: {e}")
+        logger.error(f"Chart generation error: {e}", exc_info=True)

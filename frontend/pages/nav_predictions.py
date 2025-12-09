@@ -384,8 +384,7 @@ def render_prediction_for_selected_scheme():
         st.write("")
         if st.button("🔮 Generate Prediction", use_container_width=True, type="primary", key="predict_generate_btn"):
             st.session_state['run_prediction'] = True
-            st.rerun()
-    
+            
     with col3:
         st.metric("Model", "XGBoost")
         st.caption("Lookback: 60 days")
