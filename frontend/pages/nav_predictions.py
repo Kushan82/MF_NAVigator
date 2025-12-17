@@ -395,95 +395,74 @@ def render_prediction_for_selected_scheme():
 
 
 def render_predictions(scheme_code: str, forecast_days: int, scheme_name: str):
-    """Generate and render predictions"""
+    """Generate predictions with progress tracking"""
     
     st.markdown("---")
     st.markdown("### 📊 Prediction Results")
     
-    with st.spinner("🤖 Training ML model and generating predictions... This may take 30-60 seconds."):
+    # Create progress placeholder
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    try:
+        # Step 1: Initial prediction
+        status_text.text("🤖 Training ML model... (30-60 seconds)")
+        progress_bar.progress(20)
+        
+        pred_data = api.predict_nav(scheme_code, forecast_days)
+        
+        if not pred_data:
+            st.error("❌ Unable to generate prediction")
+            progress_bar.empty()
+            status_text.empty()
+            st.session_state['run_prediction'] = False
+            return
+        
+        progress_bar.progress(50)
+        status_text.text("✅ Initial prediction complete!")
+        
+        # Display initial prediction
+        # ... (your existing code)
+        
+        # Step 2: Sequential predictions
+        st.markdown("---")
+        st.markdown("### 📈 Sequential Forecast (Next 7 Days)")
+        
+        status_text.text("🔮 Generating day-by-day predictions... (may take up to 2 minutes)")
+        progress_bar.progress(60)
+        
+        # Use longer timeout for sequential
+        original_timeout = api.timeout
+        api.set_timeout(120)  # 2 minutes
+        
         try:
-            # Prepare prediction request data (as dict, not Pydantic model)
-            pred_request_data = {
-                "scheme_code": scheme_code,
-                "forecast_days": forecast_days
-            }
+            seq_data = api.predict_sequence(scheme_code, days=7)
+            progress_bar.progress(100)
+            status_text.text("✅ All predictions complete!")
             
-            # Call API with proper parameters
-            pred_data = api.predict_nav(scheme_code, forecast_days)
-            
-            if not pred_data:
-                st.error("❌ Unable to generate prediction. The scheme may not have enough historical data (need 200+ days).")
-                st.session_state['run_prediction'] = False
-                return
-            
-            # Display prediction summary
-            st.markdown(f"#### {pred_data.get('scheme_name', scheme_name)}")
-            
-            col1, col2, col3 = st.columns(3)
-            
-            prediction = pred_data.get('prediction', {})
-            
-            with col1:
-                st.metric(
-                    "Current NAV",
-                    f"₹{pred_data['current_nav']:.2f}",
-                    help="Latest available NAV"
-                )
-            
-            with col2:
-                change_pct = prediction.get('change_percent', 0)
-                delta_color = "normal" if change_pct >= 0 else "inverse"
-                st.metric(
-                    f"Predicted NAV ({forecast_days}d)",
-                    f"₹{prediction.get('predicted_nav', 0):.2f}",
-                    delta=f"{change_pct:.2f}%",
-                    delta_color=delta_color,
-                    help=f"Predicted NAV after {forecast_days} days"
-                )
-            
-            with col3:
-                confidence = pred_data.get('confidence', 'Medium')
-                if confidence == 'High':
-                    st.success(f"🎯 Confidence: {confidence}")
-                elif confidence == 'Medium':
-                    st.info(f"📊 Confidence: {confidence}")
-                else:
-                    st.warning(f"⚠️ Confidence: {confidence}")
-            
-            # Change metrics
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                st.metric("Absolute Change", f"₹{prediction.get('change', 0):.2f}")
-            
-            with col2:
-                st.metric("Prediction Date", prediction.get('date', 'N/A'))
-            
-            with col3:
-                st.text("")
-            
-            # Get sequential predictions
-            st.markdown("---")
-            st.markdown("### 📈 Sequential Forecast (Next 7 Days)")
-            
-            with st.spinner("Generating day-by-day predictions..."):
-                seq_data = api.predict_sequence(scheme_code, days=7)
-                
-                if seq_data and seq_data.get('predictions'):
-                    render_sequential_predictions(seq_data, pred_data)
-                else:
-                    st.warning("Sequential predictions not available")
-            
-            # Reset prediction flag
-            st.session_state['run_prediction'] = False
-            
-        except Exception as e:
-            st.error(f"❌ Error generating predictions: {str(e)}")
-            st.session_state['run_prediction'] = False
-
-
+            if seq_data and seq_data.get('predictions'):
+                render_sequential_predictions(seq_data, pred_data)
+            else:
+                st.warning("Sequential predictions not available")
+        
+        finally:
+            # Restore original timeout
+            api.set_timeout(original_timeout)
+        
+        # Clear progress indicators
+        progress_bar.empty()
+        status_text.empty()
+        st.session_state['run_prediction'] = False
+        
+    except Exception as e:
+        progress_bar.empty()
+        status_text.empty()
+        st.error(f"❌ Error: {str(e)}")
+        st.session_state['run_prediction'] = False
+        
 def render_sequential_predictions(seq_data: dict, pred_data: dict):
-    """Render sequential predictions chart and table"""
+
+    """Render sequential predictions - WITH BETTER ERROR HANDLING"""
     
     predictions = seq_data.get('predictions', [])
     if not predictions:
@@ -492,10 +471,12 @@ def render_sequential_predictions(seq_data: dict, pred_data: dict):
     
     df_seq = pd.DataFrame(predictions)
     
-    # Create interactive chart
+    # Show loading message
+    st.info("💡 Sequential predictions completed successfully!")
+    
+    # Create chart (rest remains the same)
     fig = go.Figure()
     
-    # Add prediction line
     fig.add_trace(go.Scatter(
         x=df_seq['day'],
         y=df_seq['predicted_nav'],
@@ -515,47 +496,18 @@ def render_sequential_predictions(seq_data: dict, pred_data: dict):
         annotation_position="right"
     )
     
-    # Add confidence bands (±5%)
-    upper_band = df_seq['predicted_nav'] * 1.05
-    lower_band = df_seq['predicted_nav'] * 0.95
-    
-    fig.add_trace(go.Scatter(
-        x=df_seq['day'],
-        y=upper_band,
-        mode='lines',
-        name='Upper Band (+5%)',
-        line=dict(width=0),
-        showlegend=False,
-        hoverinfo='skip'
-    ))
-    
-    fig.add_trace(go.Scatter(
-        x=df_seq['day'],
-        y=lower_band,
-        mode='lines',
-        name='Lower Band (-5%)',
-        line=dict(width=0),
-        fillcolor='rgba(31, 119, 180, 0.2)',
-        fill='tonexty',
-        showlegend=True,
-        hoverinfo='skip'
-    ))
-    
     fig.update_layout(
         title=f"7-Day NAV Forecast - {seq_data.get('scheme_name', 'Scheme')}",
         xaxis_title="Days Ahead",
         yaxis_title="NAV (₹)",
         height=500,
-        hovermode='x unified',
-        showlegend=True
+        hovermode='x unified'
     )
     
     st.plotly_chart(fig, use_container_width=True)
     
-    # Prediction table
+    # Table
     st.markdown("#### 📋 Day-by-Day Predictions")
-    
-    # Format table
     display_df = df_seq.copy()
     display_df['predicted_nav'] = display_df['predicted_nav'].round(2)
     display_df['change_percent'] = display_df['change_percent'].round(2)
@@ -564,13 +516,7 @@ def render_sequential_predictions(seq_data: dict, pred_data: dict):
     st.dataframe(
         display_df[['day', 'predicted_nav', 'change_from_today', 'change_percent']],
         use_container_width=True,
-        hide_index=True,
-        column_config={
-            "day": st.column_config.NumberColumn("Day", help="Days ahead"),
-            "predicted_nav": st.column_config.NumberColumn("Predicted NAV (₹)", format="%.2f"),
-            "change_from_today": st.column_config.NumberColumn("Change (₹)", format="%.2f"),
-            "change_percent": st.column_config.NumberColumn("Change (%)", format="%.2f")
-        }
+        hide_index=True
     )
     
     # Download button

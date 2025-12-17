@@ -31,36 +31,34 @@ class APIClient:
     # CORE REQUEST METHOD
     # ==========================================
     
+    def predict_sequence(self, scheme_code: str, days: int = 7) -> Optional[Dict]:
+        """Get sequential NAV predictions - WITH LONGER TIMEOUT"""
+        return self._make_request(
+            "GET",
+            f"{self.api_v1}/predict/sequence/{scheme_code}",
+            params={"days": days},
+            timeout=120  # Use 2 minutes for sequential predictions
+        )
+    
     def _make_request(
         self,
         method: str,
         url: str,
         show_error: bool = True,
+        timeout: int = None,  # ADD timeout parameter
         **kwargs
     ) -> Optional[Any]:
-        """
-        Make HTTP request with comprehensive error handling
-        
-        Args:
-            method: HTTP method (GET, POST, PUT, DELETE, etc.)
-            url: Full URL to request
-            show_error: Whether to show error messages in Streamlit
-            **kwargs: Additional arguments to pass to requests
-        
-        Returns:
-            Response JSON/data or None if error
-        """
+        """Make HTTP request with custom timeout support"""
         try:
             response = requests.request(
                 method,
                 url,
-                timeout=self.timeout,
+                timeout=timeout or self.timeout,  # Use custom or default timeout
                 **kwargs
             )
             
             response.raise_for_status()
             
-            # Return JSON if available
             try:
                 return response.json()
             except:
@@ -68,7 +66,7 @@ class APIClient:
         
         except requests.exceptions.Timeout:
             if show_error:
-                st.error("⏱️ Request timed out. Please try again.")
+                st.error(f"⏱️ Request timed out after {timeout or self.timeout}s. Sequential predictions take time - please wait.")
             logger.error(f"Timeout: {method} {url}")
             return None
         

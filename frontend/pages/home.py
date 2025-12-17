@@ -141,49 +141,67 @@ def render_advanced_filters():
         st.info("💡 **Select filters and click 'Apply Filters' to see results**")
 
 
+"""
+Fixed apply_filters function for home.py
+Replace the existing apply_filters function with this one
+"""
+
 def apply_filters(category: str, amc: str, limit: int):
-    """Apply filters and store results"""
+    """Apply filters and store results - FIXED VERSION"""
     
     with st.spinner("🔍 Applying filters..."):
         try:
-            # Determine search query
+            # Build search query based on filters
             if amc != 'All':
                 search_query = amc
             else:
-                search_query = "Fund"
+                # Use a generic term that will match many schemes
+                search_query = "growth"
             
-            # Fetch results
-            fetch_limit = min(limit * 3, 200)
+            # Fetch MORE results than needed to allow for filtering
+            fetch_limit = min(limit * 5, 200)  # Fetch 5x what we need
+            
+            # Call API
             results = api.search_schemes(search_query, limit=fetch_limit)
             
-            if not results or results.get('total_results', 0) == 0:
-                st.warning(f"❌ No schemes found")
+            # Validate response
+            if not results or not isinstance(results, dict):
+                st.warning("❌ No schemes found or invalid response from API")
                 return
             
-            schemes_list = results['schemes']
+            if results.get('total_results', 0) == 0:
+                st.warning(f"❌ No schemes found matching your search")
+                return
             
-            # Filter by category
+            schemes_list = results.get('schemes', [])
+            
+            if not schemes_list:
+                st.warning("❌ No schemes in response")
+                return
+            
+            # Apply category filter if not 'All'
             if category != 'All':
                 schemes_list = [
                     s for s in schemes_list 
-                    if s.get('category') == category
+                    if str(s.get('category', '')).strip() == category
                 ]
             
-            # Filter by AMC
+            # Apply AMC filter if not 'All' (already partially filtered by search)
             if amc != 'All':
                 schemes_list = [
                     s for s in schemes_list 
-                    if amc.lower() in s.get('amc', '').lower()
+                    if amc.lower() in str(s.get('amc', '')).lower()
                 ]
             
-            # Apply limit
+            # Limit final results
             schemes_list = schemes_list[:limit]
             
             if len(schemes_list) == 0:
-                st.warning("❌ No schemes match your filter combination")
+                st.warning(f"❌ No schemes match your filter combination (Category: {category}, AMC: {amc})")
+                st.info("💡 Try selecting 'All' for one or both filters, or choose a different AMC")
                 return
             
-            # Store results
+            # Store filtered results
             filtered_results = {
                 'total_results': len(schemes_list),
                 'schemes': schemes_list
@@ -193,8 +211,9 @@ def apply_filters(category: str, amc: str, limit: int):
             st.rerun()
         
         except Exception as e:
-            st.error(f"❌ Error: {str(e)}")
-
+            st.error(f"❌ Error applying filters: {str(e)}")
+            import traceback
+            st.code(traceback.format_exc())
 
 def display_search_results(results: dict):
     """Display search results with table and card views"""

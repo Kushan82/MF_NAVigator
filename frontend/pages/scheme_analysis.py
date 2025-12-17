@@ -83,8 +83,9 @@ def render_scheme_search():
     with tab2:
         render_advanced_filters()
 
+
 def render_quick_search():
-    """Render quick search interface"""
+    """Render quick search interface - FIXED"""
     
     st.markdown("#### Quick Search")
     
@@ -105,24 +106,48 @@ def render_quick_search():
     if search_button and search_query and len(search_query) >= 2:
         with st.spinner("Searching..."):
             try:
-                results = api._make_request(
-                    "GET",
-                    f"{api.api_v1}/nav/search",
-                    params={"q": search_query, "limit": 20},
-                    show_error=True
-                )
+                # Use standard search endpoint
+                results = api.search_schemes(search_query, limit=20)
                 
-                if results and len(results) > 0:
-                    st.session_state['analysis_search_results'] = results
-                    st.success(f"✅ Found {len(results)} schemes")
-                else:
-                    st.warning("No schemes found.")
+                # Validate results
+                if not results or not isinstance(results, dict):
+                    st.warning("No results returned from API")
+                    return
+                
+                total_results = results.get('total_results', 0)
+                schemes = results.get('schemes', [])
+                
+                if total_results == 0 or not schemes:
+                    st.warning("No schemes found matching your search")
+                    return
+                
+                # Convert to expected format for session state
+                formatted_results = []
+                for scheme in schemes:
+                    formatted_results.append({
+                        'Scheme Code': str(scheme.get('scheme_code', '')),
+                        'Scheme Name': scheme.get('scheme_name', 'Unknown'),
+                        'current_nav': scheme.get('current_nav', 0),
+                        'nav_date': scheme.get('nav_date', ''),
+                        'amc': scheme.get('amc', 'Unknown'),
+                        'category': scheme.get('category', 'N/A')
+                    })
+                
+                st.session_state['analysis_search_results'] = formatted_results
+                st.success(f"✅ Found {len(formatted_results)} schemes")
+                
             except Exception as e:
                 st.error(f"Search failed: {e}")
+                import traceback
+                logger.error(f"Search error: {traceback.format_exc()}")
     
     # Display search results
     if 'analysis_search_results' in st.session_state:
         results = st.session_state['analysis_search_results']
+        
+        if not results:
+            st.warning("No results to display")
+            return
         
         st.markdown("---")
         st.markdown("#### 📋 Select a Scheme")
@@ -144,11 +169,12 @@ def render_quick_search():
             with col1:
                 st.metric("Code", selected['Scheme Code'])
             with col2:
-                st.metric("NAV", f"₹{selected['current_nav']:.2f}")
+                nav_val = selected.get('current_nav', 0)
+                st.metric("NAV", f"₹{float(nav_val):.2f}" if nav_val else "N/A")
             with col3:
-                st.metric("AMC", selected['amc'][:20])
+                st.metric("AMC", str(selected.get('amc', 'N/A'))[:20])
             with col4:
-                st.metric("Category", selected.get('category', 'N/A')[:15])
+                st.metric("Category", str(selected.get('category', 'N/A'))[:15])
             
             st.markdown("---")
             
@@ -157,7 +183,6 @@ def render_quick_search():
                 st.session_state['selected_scheme_name'] = selected['Scheme Name']
                 st.session_state.pop('analysis_search_results', None)
                 st.rerun()
-
 def render_advanced_filters():
     """Render advanced filters interface"""
     

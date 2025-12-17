@@ -489,7 +489,7 @@ def get_saved_portfolios():
 
 
 def render_portfolio_card(portfolio: dict):
-    """Render individual portfolio card"""
+    """Render individual portfolio card - FIXED"""
     
     with st.container():
         col1, col2, col3 = st.columns([2, 1, 2])
@@ -508,10 +508,13 @@ def render_portfolio_card(portfolio: dict):
             col_a, col_b, col_c = st.columns(3)
             
             with col_a:
+                # FIXED: Changed navigation method
                 if st.button("📊 Analyze", key=f"analyze_{portfolio['id']}", use_container_width=True):
-                    st.session_state['selected_portfolio_id'] = portfolio['id']
-                    st.session_state['navigate_to'] = '📊 Portfolio Analysis'
-                    st.rerun()
+                    # Store portfolio data and navigate to portfolio builder tab
+                    st.session_state['analyzing_portfolio'] = portfolio
+                    st.success("✅ Loading portfolio analysis...")
+                    # Show analysis inline instead of navigating
+                    show_portfolio_analysis(portfolio)
             
             with col_b:
                 if st.button("✏️ Edit", key=f"edit_{portfolio['id']}", use_container_width=True):
@@ -522,7 +525,85 @@ def render_portfolio_card(portfolio: dict):
                     delete_portfolio(portfolio['id'], portfolio['name'])
         
         st.markdown("---")
-
+def show_portfolio_analysis(portfolio: dict):
+    """Show portfolio analysis inline - NEW FUNCTION"""
+    
+    st.markdown("---")
+    st.markdown(f"### 📊 Analysis: {portfolio['name']}")
+    
+    try:
+        # Prepare portfolio data for API
+        portfolio_request = {
+            "name": portfolio['name'],
+            "description": portfolio.get('description', ''),
+            "schemes": portfolio.get('schemes', [])
+        }
+        
+        # Call portfolio analysis API
+        with st.spinner("📊 Analyzing portfolio..."):
+            analysis = api.analyze_portfolio(portfolio_request)
+        
+        if not analysis:
+            st.error("❌ Could not analyze portfolio")
+            return
+        
+        # Display metrics
+        st.markdown("#### 📈 Portfolio Metrics")
+        
+        metrics = analysis.get('metrics', {})
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            ann_return = metrics.get('annualized_return', 0)
+            st.metric("Annual Return", f"{ann_return*100:.2f}%")
+        
+        with col2:
+            volatility = metrics.get('volatility', 0)
+            st.metric("Volatility", f"{volatility*100:.2f}%")
+        
+        with col3:
+            sharpe = metrics.get('sharpe_ratio', 0)
+            st.metric("Sharpe Ratio", f"{sharpe:.3f}")
+        
+        with col4:
+            max_dd = metrics.get('max_drawdown', 0)
+            st.metric("Max Drawdown", f"{abs(max_dd)*100:.2f}%")
+        
+        # Additional metrics
+        st.markdown("---")
+        st.markdown("#### 📋 Additional Metrics")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            sortino = metrics.get('sortino_ratio', 0)
+            st.metric("Sortino Ratio", f"{sortino:.3f}")
+        
+        with col2:
+            var_95 = metrics.get('var_95', 0)
+            st.metric("VaR (95%)", f"{var_95*100:.2f}%")
+        
+        with col3:
+            # Add diversification if available
+            st.metric("Schemes", len(portfolio.get('schemes', [])))
+        
+        # Scheme breakdown
+        st.markdown("---")
+        st.markdown("#### 🎯 Portfolio Composition")
+        
+        schemes_df = pd.DataFrame(portfolio.get('schemes', []))
+        if not schemes_df.empty:
+            schemes_df['weight_pct'] = schemes_df['weight'] * 100
+            schemes_df = schemes_df[['scheme_name', 'weight_pct']]
+            schemes_df.columns = ['Scheme Name', 'Weight (%)']
+            
+            st.dataframe(schemes_df, use_container_width=True, hide_index=True)
+        
+    except Exception as e:
+        st.error(f"❌ Analysis error: {str(e)}")
+        import traceback
+        st.code(traceback.format_exc())
 
 def load_portfolio_for_edit(portfolio: dict):
     """Load portfolio into builder for editing"""

@@ -771,7 +771,7 @@ async def predict_sequence(
     scheme_code: str,
     days: int = Query(7, ge=1, le=30, description="Number of days to predict")
 ):
-    """Get sequential NAV predictions - FIXED"""
+    """Get sequential NAV predictions - OPTIMIZED"""
     try:
         logger.info(f"🔮 Predicting {days}-day sequence for {scheme_code}")
         
@@ -787,7 +787,6 @@ async def predict_sequence(
                 detail=f"Not enough data. Need 200+ days, found {len(history_df)}"
             )
         
-        # Check if predictor is available
         if NAVPredictor is None:
             raise HTTPException(status_code=503, detail="Predictor not available")
         
@@ -796,11 +795,36 @@ async def predict_sequence(
             history_df['NAV'].values if 'NAV' in history_df.columns else history_df['nav'].values
         )
         
-        # Train predictor
-        predictor_instance = NAVPredictor(lookback_days=60, forecast_days=1)
-        predictor_instance.train(nav_series, validation_split=0.2)
+        # OPTIMIZATION: Use cached predictor if available for same scheme
+        cache_key = f"predictor_{scheme_code}"
         
-        # Generate sequence
+        if cache_key not in st.session_state:
+            # Train predictor ONCE
+            predictor_instance = NAVPredictor(lookback_days=60, forecast_days=1)
+            logger.info(f"   Training model for {scheme_code}...")
+            predictor_instance.train(nav_series, validation_split=0.2)
+            # Cache it (expires after 1 hour)
+            st.session_state[cache_key] = {
+                'predictor': predictor_instance,
+                'timestamp': time.time()
+            }
+        else:
+            # Check if cache is still valid (1 hour)
+            cache_data = st.session_state[cache_key]
+            if time.time() - cache_data['timestamp'] > 3600:
+                # Cache expired, retrain
+                predictor_instance = NAVPredictor(lookback_days=60, forecast_days=1)
+                predictor_instance.train(nav_series, validation_split=0.2)
+                st.session_state[cache_key] = {
+                    'predictor': predictor_instance,
+                    'timestamp': time.time()
+                }
+            else:
+                # Use cached predictor
+                predictor_instance = cache_data['predictor']
+                logger.info(f"   Using cached model for {scheme_code}")
+        
+        # Generate sequence (fast now, model already trained)
         seq_predictions = predictor_instance.predict_sequence(nav_series, n_days=days)
         
         # Get scheme name
@@ -808,7 +832,6 @@ async def predict_sequence(
         scheme_data = nav_data_df[nav_data_df['Scheme Code'].astype(str) == str(scheme_code)]
         scheme_name = scheme_data.iloc[0]['Scheme Name'] if not scheme_data.empty else scheme_code
         
-        # Format response
         result = {
             "scheme_code": scheme_code,
             "scheme_name": scheme_name,
